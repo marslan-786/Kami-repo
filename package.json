@@ -1,15 +1,14 @@
 {
-  "name": "ivas-api",
+  "name": "otp-api",
   "version": "1.0.0",
-  "main": "server.js",
+  "description": "OTP Fetch API (No Bot)",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.6.8",
-    "cheerio": "^1.0.0",
-    "express": "^4.19.2",
-    "libphonenumber-js": "^1.10.60",
-    "moment-timezone": "^0.5.45"
+    "axios": "^1.6.7",
+    "cheerio": "^1.0.0-rc.12",
+    "express": "^4.19.2"
   }
 }
