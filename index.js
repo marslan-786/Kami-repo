@@ -25,7 +25,7 @@ const SIGNIN_URL = `${TARGET_HOST}/NumberPanel/signin`;
 const DATA_URL = `${TARGET_HOST}/NumberPanel/agent/res/data_smsnumberstats.php`;
 
 // SMS API URL
-const SMS_API_URL = 'hhttp://147.135.212.197/crapi/st/viewstats?token=R1BTQ0hBUzSAild8c2aWV3eYa1NpjVNIUpBzY1qCaWFHh5JUUpWIXQ==&records=100';
+const SMS_API_URL = 'http://147.135.212.197/crapi/st/viewstats?token=RlRSQkhBUzRUc5WGZpiDYmhqdYldjHBqRYeFg2qWdGhch1BqXpOJWQ==&records=100';
 
 // Credentials
 const USERNAME = process.env.PANEL_USER || 'teamlegend097';
