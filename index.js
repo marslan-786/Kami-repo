@@ -67,18 +67,38 @@ async function fetchNumbers() {
       }
     });
 
-    if (!res.data.aaData) return [];
+    // Agar response me aaData nahi hai, return empty structure
+    if (!res.data.aaData) return {
+      sEcho: 2,
+      iTotalRecords: "0",
+      iTotalDisplayRecords: "0",
+      aaData: []
+    };
 
-    return res.data.aaData.map(r => ({
-      id: r[0],
-      number: r[1],
-      country: r[2],
-      service: r[3],
-      status: r[4]
-    }));
+    const data = res.data.aaData.map(r => [
+      r[0], // id / name
+      r[1], // empty or number
+      r[2], // number / country
+      r[3], // service
+      r[4], // status
+      r[5]  // extra
+    ]);
+
+    return {
+      sEcho: 2,
+      iTotalRecords: String(data.length),
+      iTotalDisplayRecords: String(data.length),
+      aaData: data
+    };
+
   } catch (e) {
     sesskey = "";
-    return [];
+    return {
+      sEcho: 2,
+      iTotalRecords: "0",
+      iTotalDisplayRecords: "0",
+      aaData: []
+    };
   }
 }
 
@@ -123,7 +143,7 @@ app.get("/api", async (req, res) => {
 
   if (type === "numbers") {
     const data = await fetchNumbers();
-    return res.json({ status: true, total: data.length, data });
+    return res.json(data);
   } else if (type === "sms") {
     const data = await fetchSMS();
     return res.json({ status: true, total: data.length, data });
