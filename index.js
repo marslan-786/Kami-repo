@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 5000;
 
 // --- CONFIG ---
 const BASE = "http://51.89.99.105/NumberPanel";
-const CREDENTIALS = { username: "Kami521", password: "Kami526" };
+const CREDENTIALS = { username: "Kami555", password: "Kami526" };
 
 const COMMON_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Linux; Android 12)",
