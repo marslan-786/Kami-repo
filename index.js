@@ -1,119 +1,176 @@
 const express = require('express');
-const got = require('got'); 
-const { CookieJar } = require('tough-cookie');
-const cheerio = require('cheerio');
-const moment = require('moment-timezone');
-const { parsePhoneNumber } = require('libphonenumber-js');
+const axios = require('axios');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
-const cookieJar = new CookieJar();
-const client = got.extend({
-    cookieJar,
-    headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36'
-    },
-    retry: {
-        limit: 2 
+const CREDENTIALS = {
+    username: "Kami521",
+    password: "Kami526"
+};
+
+const BASE_URL = "http://51.89.99.105/NumberPanel";
+const STATS_PAGE_URL = `${BASE_URL}/client/SMSCDRStats`;
+
+const COMMON_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "X-Requested-With": "XMLHttpRequest",
+    "Origin": BASE_URL
+};
+
+let STATE = {
+    cookie: null,
+    sessKey: null,
+    isLoggingIn: false,
+    lastLogin: 0
+};
+
+function extractKey(html) {
+    let match = html.match(/sesskey=([^&"']+)/);
+    if (match) return match[1];
+    return null;
+}
+
+async function performLogin() {
+    if (STATE.isLoggingIn) return;
+    STATE.isLoggingIn = true;
+
+    console.log("🔄 Performing Login...");
+
+    try {
+        const instance = axios.create({ headers: COMMON_HEADERS });
+
+        const r1 = await instance.get(`${BASE_URL}/login`);
+
+        let cookie = r1.headers['set-cookie']
+            ?.find(c => c.includes('PHPSESSID'))
+            ?.split(';')[0];
+
+        const match = r1.data.match(/What is (\d+) \+ (\d+)/);
+        const ans = parseInt(match[1]) + parseInt(match[2]);
+
+        const params = new URLSearchParams();
+        params.append('username', CREDENTIALS.username);
+        params.append('password', CREDENTIALS.password);
+        params.append('capt', ans);
+
+        const r2 = await instance.post(`${BASE_URL}/signin`, params, {
+            headers: { Cookie: cookie }
+        });
+
+        if (r2.headers['set-cookie']) {
+            cookie = r2.headers['set-cookie']
+                .find(c => c.includes('PHPSESSID'))
+                ?.split(';')[0];
+        }
+
+        STATE.cookie = cookie;
+        STATE.lastLogin = Date.now();
+
+        console.log("✅ Login success");
+
+        const r3 = await axios.get(STATS_PAGE_URL, {
+            headers: { Cookie: STATE.cookie }
+        });
+
+        STATE.sessKey = extractKey(r3.data);
+
+        console.log("🔥 SessKey:", STATE.sessKey);
+
+    } catch (e) {
+        console.log("❌ Login failed:", e.message);
+    }
+
+    STATE.isLoggingIn = false;
+}
+
+async function ensureLogin() {
+    if (!STATE.cookie || !STATE.sessKey) {
+        await performLogin();
+    }
+}
+
+async function fetchWithAutoRelogin(url, referer) {
+    await ensureLogin();
+
+    try {
+        const res = await axios.get(url, {
+            headers: {
+                ...COMMON_HEADERS,
+                Cookie: STATE.cookie,
+                Referer: referer
+            },
+            responseType: 'arraybuffer'
+        });
+
+        const text = res.data.subarray(0, 500).toString();
+
+        // SESSION EXPIRED DETECT
+        if (text.includes("<html") || text.includes("login")) {
+            console.log("⚠️ Session expired -> re-login");
+
+            await performLogin();
+
+            // retry once
+            return await axios.get(url, {
+                headers: {
+                    ...COMMON_HEADERS,
+                    Cookie: STATE.cookie,
+                    Referer: referer
+                }
+            });
+        }
+
+        return res;
+
+    } catch (e) {
+        console.log("⚠️ Request error -> re-login");
+
+        await performLogin();
+
+        return await axios.get(url, {
+            headers: {
+                ...COMMON_HEADERS,
+                Cookie: STATE.cookie,
+                Referer: referer
+            }
+        });
+    }
+}
+
+app.get('/api', async (req, res) => {
+    const type = req.query.type;
+    const ts = Date.now();
+
+    let url, referer;
+
+    if (type === "numbers") {
+        referer = `${BASE_URL}/client/MySMSNumbers`;
+        url = `${BASE_URL}/client/res/data_smsnumbers.php?_=${ts}`;
+    }
+    else if (type === "sms") {
+        referer = `${BASE_URL}/client/SMSCDRStats`;
+        url = `${BASE_URL}/client/res/data_smscdr.php?sesskey=${STATE.sessKey}&_=${ts}`;
+    }
+    else {
+        return res.send("Use ?type=sms or numbers");
+    }
+
+    try {
+        const response = await fetchWithAutoRelogin(url, referer);
+
+        res.set('Content-Type', 'application/json');
+        res.send(response.data);
+
+    } catch (e) {
+        res.status(500).send(e.message);
     }
 });
 
-const TARGET_HOST = 'http://51.89.99.105';
-const LOGIN_URL = `${TARGET_HOST}/NumberPanel/login`;
-const SIGNIN_URL = `${TARGET_HOST}/NumberPanel/signin`;
-const DATA_URL = `${TARGET_HOST}/NumberPanel/agent/res/data_smsnumberstats.php`;
-
-// SMS API URL
-const SMS_API_URL = 'http://147.135.212.197/crapi/st/viewstats?token=R1BTQ0hBUzSAild8c2aWV3eYa1NpjVNIUpBzY1qCaWFHh5JUUpWIXQ==&records=50';
-
-// Credentials
-const USERNAME = process.env.PANEL_USER || 'teamlegend097';
-const PASSWORD = process.env.PANEL_PASS || 'teamlegend097';
-
-// --- CACHING VARIABLES (Global Memory) ---
-let numbersCache = null;
-let numbersLastFetch = 0;
-const NUMBERS_CACHE_TIME = 5 * 60 * 1000; // 5 Minutes
-
-let smsCache = null;         // SMS ڈیٹا یہاں سٹور ہوگا
-let smsLastFetch = 0;        // آخری بار کب اپڈیٹ ہوا
-const SMS_CACHE_TIME = 5000; // 5 Seconds (Strict Lock)
-
-// --- Helper Functions ---
-
-function getCountryFromNumber(number) {
-    if (!number) return "International";
-    try {
-        const strNum = number.toString().startsWith('+') ? number.toString() : '+' + number.toString();
-        const phoneNumber = parsePhoneNumber(strNum);
-
-        if (phoneNumber && phoneNumber.country) {
-            const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
-            return regionNames.of(phoneNumber.country);
-        }
-        return "International";
-    } catch (error) {
-        return "International";
-    }
-}
-
-function fixSmsMessage(msg) {
-    if (!msg) return "";
-    let fixedMsg = msg.replace(/(\d)n/g, '$1 ');
-    fixedMsg = fixedMsg.replace(/\n/g, ' ');
-    return fixedMsg;
-}
-
-async function ensureLoggedIn() {
-    try {
-        const loginPage = await client.get(LOGIN_URL);
-        const $ = cheerio.load(loginPage.body);
-        const labelText = $('label:contains("What is")').text();
-        const match = labelText.match(/(\d+)\s*\+\s*(\d+)/);
-        let captchaAnswer = 0;
-        if (match) captchaAnswer = parseInt(match[1]) + parseInt(match[2]);
-
-        await client.post(SIGNIN_URL, {
-            form: { username: USERNAME, password: PASSWORD, capt: captchaAnswer },
-            headers: { 'Referer': LOGIN_URL }
-        });
-    } catch (error) {
-        console.error('Login Failed:', error.message);
-    }
-}
-
-// --- Routes ---
-
-app.get('/', (req, res) => {
-    res.send('Number Panel Proxy is Running with Anti-Spam Cache!');
-});
-
-// 1. Numbers API (5 Minute Cache Logic)
-app.get('/api/numbers', async (req, res) => {
-    try {
-        const currentTime = Date.now();
-
-        // ** Strict 5 Minute Lock **
-        // اگر ڈیٹا موجود ہے اور 5 منٹ نہیں گزرے تو پرانا ڈیٹا بھیج دو
-        if (numbersCache && (currentTime - numbersLastFetch < NUMBERS_CACHE_TIME)) {
-            // console.log('Serving Numbers from Cache (No Upstream Hit)');
-            return res.json(numbersCache);
-        }
-
-        // اگر 5 منٹ گزر گئے تو نیا ڈیٹا لاؤ
-        await ensureLoggedIn();
-
-        const fdate1 = '2026-01-01 00:00:00';
-        const fdate2 = moment().tz("Asia/Karachi").format('YYYY-MM-DD 23:59:59');
-
-        const searchParams = new URLSearchParams({
-            fdate1: fdate1, fdate2: fdate2, sEcho: 4, iColumns: 5, sColumns: ',,,,',
-            iDisplayStart: 0, iDisplayLength: -1, sSearch: '', bRegex: false, iSortCol_0: 0, sSortDir_0: 'desc', iSortingCols: 1, _: Date.now()
-        });
-
-        const response = await client.get(`${DATA_URL}?${searchParams.toString()}`, {
-            headers: { 'Referer': `${TARGET_HOST}/NumberPanel/agent/SMSNumberStats`, 'X-Requested-With': 'XMLHttpRequest' },
+app.listen(PORT, async () => {
+    console.log("🚀 Server Started");
+    await performLogin();
+});            headers: { 'Referer': `${TARGET_HOST}/NumberPanel/agent/SMSNumberStats`, 'X-Requested-With': 'XMLHttpRequest' },
             responseType: 'json' 
         });
 
