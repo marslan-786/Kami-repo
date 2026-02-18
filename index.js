@@ -5,7 +5,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --- CONFIGURATION ---
-const CREDENTIALS = { username: "Kami521", password: "Kami526" };
+const CREDENTIALS = { username: "Kami555", password: "Kami526" };
 const BASE = "http://51.89.99.105/NumberPanel";
 const STATS_PAGE_URL = `${BASE}/client/SMSCDRStats`;
 
