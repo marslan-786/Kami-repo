@@ -1,57 +1,55 @@
 const express = require("express");
 const http = require("http");
-const https = require("https");
 const zlib = require("zlib");
 const querystring = require("querystring");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
+
+/* ================= CONFIG ================= */
 
 const CONFIG = {
-  baseUrl: "http://145.239.130.45/ints",
-  username: "Kami526",
-  password: "Kamran52",
+  baseUrl: "http://167.114.209.78/roxy",
+  username: "Kamibroken",
+  password: "Kamran5.",
   userAgent:
-    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 };
 
 let cookies = [];
 
 /* ================= REQUEST HELPER ================= */
 
-function request(method, url, data = null, extraHeaders = {}) {
+function request(method, url, data = null, headersExtra = {}) {
   return new Promise((resolve, reject) => {
-    const lib = url.startsWith("https") ? https : http;
-
     const headers = {
       "User-Agent": CONFIG.userAgent,
       "Accept": "*/*",
       "Accept-Encoding": "gzip, deflate",
       "Cookie": cookies.join("; "),
-      ...extraHeaders
+      ...headersExtra
     };
 
-    if (method === "POST" && data) {
+    if (method === "POST") {
       headers["Content-Type"] = "application/x-www-form-urlencoded";
       headers["Content-Length"] = Buffer.byteLength(data);
     }
 
-    const req = lib.request(url, { method, headers }, res => {
+    const req = http.request(url, { method, headers }, res => {
       if (res.headers["set-cookie"]) {
-        res.headers["set-cookie"].forEach(c => {
-          cookies.push(c.split(";")[0]);
-        });
+        res.headers["set-cookie"].forEach(c =>
+          cookies.push(c.split(";")[0])
+        );
       }
 
       let chunks = [];
       res.on("data", d => chunks.push(d));
       res.on("end", () => {
-        let buffer = Buffer.concat(chunks);
-
+        let buf = Buffer.concat(chunks);
         if (res.headers["content-encoding"] === "gzip")
-          buffer = zlib.gunzipSync(buffer);
+          buf = zlib.gunzipSync(buf);
 
-        resolve(buffer.toString());
+        resolve(buf.toString());
       });
     });
 
@@ -66,29 +64,31 @@ function request(method, url, data = null, extraHeaders = {}) {
 async function login() {
   cookies = [];
 
-  const page = await request("GET", `${CONFIG.baseUrl}/login`);
+  console.log("🔄 Login start");
 
-  // FIXED CAPTCHA REGEX
+  const page = await request("GET", `${CONFIG.baseUrl}/Login`);
+
+  // AUTO CAPTCHA SOLVE
   const match = page.match(/What is (\d+) \+ (\d+)/i);
-  let ans = match ? Number(match[1]) + Number(match[2]) : 10;
+  const answer = match ? Number(match[1]) + Number(match[2]) : 6;
 
   const form = querystring.stringify({
     username: CONFIG.username,
     password: CONFIG.password,
-    capt: ans
+    capt: answer
   });
 
   await request(
     "POST",
     `${CONFIG.baseUrl}/signin`,
     form,
-    { Referer: `${CONFIG.baseUrl}/login` }
+    { Referer: `${CONFIG.baseUrl}/Login` }
   );
 
   console.log("✅ Logged in");
 }
 
-/* ================= FETCH NUMBERS ================= */
+/* ================= NUMBERS ================= */
 
 async function getNumbers() {
   const url =
@@ -100,23 +100,25 @@ async function getNumbers() {
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  return JSON.parse(data); // SAME STYLE RETURN
+  return JSON.parse(data);
 }
 
-/* ================= FETCH SMS ================= */
+/* ================= SMS ================= */
 
 async function getSMS() {
+  const today = new Date().toISOString().slice(0, 10);
+
   const url =
     `${CONFIG.baseUrl}/agent/res/data_smscdr.php?` +
-    `fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59` +
-    `&iDisplayLength=2000&iSortCol_0=0&sSortDir_0=desc`;
+    `fdate1=${today}%2000:00:00&fdate2=${today}%2023:59:59` +
+    `&iDisplayStart=0&iDisplayLength=2000`;
 
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  return JSON.parse(data); // SAME STYLE RETURN
+  return JSON.parse(data);
 }
 
 /* ================= API ================= */
@@ -136,15 +138,15 @@ app.get("/api", async (req, res) => {
     else if (type === "sms") result = await getSMS();
     else return res.json({ error: "Invalid type" });
 
-    res.json(result); // NO CHANGE STYLE
+    res.json(result);
 
-  } catch (err) {
-    res.json({ error: err.message });
+  } catch (e) {
+    res.json({ error: e.message });
   }
 });
 
 /* ================= START ================= */
 
 app.listen(PORT, () => {
-  console.log("🚀 Server running on port", PORT);
+  console.log("🚀 API running on port", PORT);
 });
