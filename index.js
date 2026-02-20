@@ -39,8 +39,7 @@ function request(method, url, data = null, extraHeaders = {}) {
     const req = lib.request(url, { method, headers }, res => {
       if (res.headers["set-cookie"]) {
         res.headers["set-cookie"].forEach(c => {
-          const clean = c.split(";")[0];
-          cookies.push(clean);
+          cookies.push(c.split(";")[0]);
         });
       }
 
@@ -48,12 +47,11 @@ function request(method, url, data = null, extraHeaders = {}) {
       res.on("data", d => chunks.push(d));
       res.on("end", () => {
         let buffer = Buffer.concat(chunks);
-        let body = buffer;
 
         if (res.headers["content-encoding"] === "gzip")
-          body = zlib.gunzipSync(buffer);
+          buffer = zlib.gunzipSync(buffer);
 
-        resolve(body.toString());
+        resolve(buffer.toString());
       });
     });
 
@@ -66,14 +64,13 @@ function request(method, url, data = null, extraHeaders = {}) {
 /* ================= LOGIN ================= */
 
 async function login() {
-  console.log("🔄 Logging in...");
+  cookies = [];
 
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
 
-  const match = page.match(/What is (\d+) \+ (\d+)/);
-  let ans = 10;
-
-  if (match) ans = Number(match[1]) + Number(match[2]);
+  // FIXED CAPTCHA REGEX
+  const match = page.match(/What is (\d+) \+ (\d+)/i);
+  let ans = match ? Number(match[1]) + Number(match[2]) : 10;
 
   const form = querystring.stringify({
     username: CONFIG.username,
@@ -88,7 +85,7 @@ async function login() {
     { Referer: `${CONFIG.baseUrl}/login` }
   );
 
-  console.log("✅ Login success");
+  console.log("✅ Logged in");
 }
 
 /* ================= FETCH NUMBERS ================= */
@@ -103,7 +100,7 @@ async function getNumbers() {
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  return JSON.parse(data);
+  return JSON.parse(data); // SAME STYLE RETURN
 }
 
 /* ================= FETCH SMS ================= */
@@ -111,7 +108,7 @@ async function getNumbers() {
 async function getSMS() {
   const url =
     `${CONFIG.baseUrl}/agent/res/data_smscdr.php?` +
-    `fdate1=2026-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59` +
+    `fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59` +
     `&iDisplayLength=2000&iSortCol_0=0&sSortDir_0=desc`;
 
   const data = await request("GET", url, null, {
@@ -119,7 +116,7 @@ async function getSMS() {
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  return JSON.parse(data);
+  return JSON.parse(data); // SAME STYLE RETURN
 }
 
 /* ================= API ================= */
@@ -127,10 +124,10 @@ async function getSMS() {
 app.get("/api", async (req, res) => {
   const type = req.query.type;
 
-  if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
+  if (!type)
+    return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
-    cookies = [];
     await login();
 
     let result;
@@ -139,7 +136,7 @@ app.get("/api", async (req, res) => {
     else if (type === "sms") result = await getSMS();
     else return res.json({ error: "Invalid type" });
 
-    res.json(result);
+    res.json(result); // NO CHANGE STYLE
 
   } catch (err) {
     res.json({ error: err.message });
@@ -149,5 +146,5 @@ app.get("/api", async (req, res) => {
 /* ================= START ================= */
 
 app.listen(PORT, () => {
-  console.log("🚀 Server running on", PORT);
+  console.log("🚀 Server running on port", PORT);
 });
