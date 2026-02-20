@@ -1,21 +1,11 @@
 {
-  "name": "sms-panel-api",
+  "name": "sms-api",
   "version": "1.0.0",
-  "description": "SMS Numbers & OTP Panel API",
   "main": "index.js",
-  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
-  "keywords": [
-    "sms",
-    "otp",
-    "panel",
-    "api"
-  ],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.18.2"
   }
 }
