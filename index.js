@@ -1,87 +1,153 @@
 const express = require("express");
-const axios = require("axios");
-const tough = require("tough-cookie");
-const { wrapper } = require("axios-cookiejar-support");
+const http = require("http");
+const https = require("https");
+const zlib = require("zlib");
+const querystring = require("querystring");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 
-const BASE = "http://145.239.130.45/ints";
+const CONFIG = {
+  baseUrl: "http://145.239.130.45/ints",
+  username: "Kami526",
+  password: "Kamran52",
+  userAgent:
+    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+};
 
-const jar = new tough.CookieJar();
+let cookies = [];
 
-const client = wrapper(axios.create({
-    jar,
-    withCredentials: true,
-    timeout: 20000,
-    headers: {
-        "User-Agent": "Mozilla/5.0",
-        "X-Requested-With": "XMLHttpRequest"
+/* ================= REQUEST HELPER ================= */
+
+function request(method, url, data = null, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith("https") ? https : http;
+
+    const headers = {
+      "User-Agent": CONFIG.userAgent,
+      "Accept": "*/*",
+      "Accept-Encoding": "gzip, deflate",
+      "Cookie": cookies.join("; "),
+      ...extraHeaders
+    };
+
+    if (method === "POST" && data) {
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+      headers["Content-Length"] = Buffer.byteLength(data);
     }
-}));
 
-let loggedIn = false;
+    const req = lib.request(url, { method, headers }, res => {
+      if (res.headers["set-cookie"]) {
+        res.headers["set-cookie"].forEach(c => {
+          const clean = c.split(";")[0];
+          cookies.push(clean);
+        });
+      }
+
+      let chunks = [];
+      res.on("data", d => chunks.push(d));
+      res.on("end", () => {
+        let buffer = Buffer.concat(chunks);
+        let body = buffer;
+
+        if (res.headers["content-encoding"] === "gzip")
+          body = zlib.gunzipSync(buffer);
+
+        resolve(body.toString());
+      });
+    });
+
+    req.on("error", reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+/* ================= LOGIN ================= */
 
 async function login() {
-    if (loggedIn) return;
+  console.log("🔄 Logging in...");
 
-    console.log("🔄 Logging in MSI...");
+  const page = await request("GET", `${CONFIG.baseUrl}/login`);
 
-    await client.post(`${BASE}/signin`,
-        "username=Kami526&password=Kamran52&capt=3",
-        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
+  const match = page.match(/What is (\d+) \+ (\d+)/);
+  let ans = 10;
 
-    // SESSION ACTIVATE (VERY IMPORTANT)
-    await client.get(`${BASE}/agent/`);
-    await client.get(`${BASE}/agent/SMSDashboard`);
+  if (match) ans = Number(match[1]) + Number(match[2]);
 
-    loggedIn = true;
-    console.log("✅ MSI Login success");
+  const form = querystring.stringify({
+    username: CONFIG.username,
+    password: CONFIG.password,
+    capt: ans
+  });
+
+  await request(
+    "POST",
+    `${CONFIG.baseUrl}/signin`,
+    form,
+    { Referer: `${CONFIG.baseUrl}/login` }
+  );
+
+  console.log("✅ Login success");
 }
 
-async function fetchNumbers() {
-    const url = `${BASE}/agent/res/data_smsnumbers.php?sEcho=1&iColumns=8&iDisplayStart=0&iDisplayLength=-1`;
-    const res = await client.get(url, {
-        headers: { Referer: `${BASE}/agent/MySMSNumbers` }
-    });
-    return res.data;
+/* ================= FETCH NUMBERS ================= */
+
+async function getNumbers() {
+  const url =
+    `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?` +
+    `frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+
+  const data = await request("GET", url, null, {
+    Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
+    "X-Requested-With": "XMLHttpRequest"
+  });
+
+  return JSON.parse(data);
 }
 
-async function fetchSMS() {
-    const url = `${BASE}/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&sEcho=1&iColumns=9&iDisplayStart=0&iDisplayLength=100&iSortCol_0=0&sSortDir_0=desc`;
-    const res = await client.get(url, {
-        headers: { Referer: `${BASE}/agent/SMSCDRReports` }
-    });
-    return res.data;
+/* ================= FETCH SMS ================= */
+
+async function getSMS() {
+  const url =
+    `${CONFIG.baseUrl}/agent/res/data_smscdr.php?` +
+    `fdate1=2026-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59` +
+    `&iDisplayLength=2000&iSortCol_0=0&sSortDir_0=desc`;
+
+  const data = await request("GET", url, null, {
+    Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
+    "X-Requested-With": "XMLHttpRequest"
+  });
+
+  return JSON.parse(data);
 }
+
+/* ================= API ================= */
 
 app.get("/api", async (req, res) => {
-    const { type } = req.query;
+  const type = req.query.type;
 
-    if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
+  if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
 
-    try {
-        await login();
+  try {
+    cookies = [];
+    await login();
 
-        let data;
+    let result;
 
-        if (type === "numbers") {
-            data = await fetchNumbers();
-        } else if (type === "sms") {
-            data = await fetchSMS();
-        } else {
-            return res.json({ error: "Invalid type" });
-        }
+    if (type === "numbers") result = await getNumbers();
+    else if (type === "sms") result = await getSMS();
+    else return res.json({ error: "Invalid type" });
 
-        res.json(data);
+    res.json(result);
 
-    } catch (err) {
-        loggedIn = false;
-        res.json({ error: err.message });
-    }
+  } catch (err) {
+    res.json({ error: err.message });
+  }
 });
 
+/* ================= START ================= */
+
 app.listen(PORT, () => {
-    console.log("🚀 Server running");
+  console.log("🚀 Server running on", PORT);
 });
