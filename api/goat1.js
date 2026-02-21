@@ -123,11 +123,6 @@ async function getNumbers() {
 }
 
 /* ================= FETCH SMS ================= */
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
 async function getSMS() {
   const d = today();
   const ts = Date.now();
@@ -144,7 +139,18 @@ async function getSMS() {
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  return safeJSON(data);
+  const json = safeJSON(data);
+
+  // Remove the sender/username (index 4)
+  if (json.aaData) {
+    json.aaData = json.aaData.map(row => {
+      // row[4] = sender/username → remove it
+      row[4] = ""; 
+      return row;
+    });
+  }
+
+  return json;
 }
 
 /* ================= API ================= */
