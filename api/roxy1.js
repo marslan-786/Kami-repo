@@ -6,7 +6,7 @@ const router = express.Router();
 /* ================= CONFIG ================= */
 const BASE = "http://167.114.209.78/roxy";
 const USER = "teamlegend0097";
-const PASS = "teamlegend0097.";
+const PASS = "teamlegend009";
 
 let cookie = "";
 
