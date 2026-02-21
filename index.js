@@ -1,62 +1,76 @@
 const express = require("express");
-const axios = require("axios");
+const http = require("http");
+const https = require("https");
+const zlib = require("zlib");
 const querystring = require("querystring");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const CONFIG = {
-  baseUrl: "http://167.114.209.78/roxy",
-  username: "Kamibroken",
-  password: "Kamran5.",
+  baseUrl: "http://145.239.130.45/ints",
+  username: "Kami526",
+  password: "Kamran52",
   userAgent:
-    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144.0.7559.132 Mobile Safari/537.36"
+    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 };
 
 let cookies = [];
 
-/* ================= HELPER ================= */
-const client = axios.create({
-  headers: {
-    "User-Agent": CONFIG.userAgent,
-    "Accept": "*/*",
-    "X-Requested-With": "XMLHttpRequest"
-  },
-  withCredentials: true,
-  timeout: 10000,
-  validateStatus: () => true
-});
+/* ================= REQUEST HELPER ================= */
 
-async function request(url, method = "GET", data = null, headers = {}) {
-  const res = await client({
-    url,
-    method,
-    data,
-    headers: { ...headers, Cookie: cookies.join("; ") },
-    maxRedirects: 0
-  });
+function request(method, url, data = null, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith("https") ? https : http;
 
-  // Capture cookies
-  if (res.headers["set-cookie"]) {
-    res.headers["set-cookie"].forEach(c => {
-      const clean = c.split(";")[0];
-      if (!cookies.includes(clean)) cookies.push(clean);
+    const headers = {
+      "User-Agent": CONFIG.userAgent,
+      "Accept": "*/*",
+      "Accept-Encoding": "gzip, deflate",
+      "Cookie": cookies.join("; "),
+      ...extraHeaders
+    };
+
+    if (method === "POST" && data) {
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+      headers["Content-Length"] = Buffer.byteLength(data);
+    }
+
+    const req = lib.request(url, { method, headers }, res => {
+      if (res.headers["set-cookie"]) {
+        res.headers["set-cookie"].forEach(c => {
+          cookies.push(c.split(";")[0]);
+        });
+      }
+
+      let chunks = [];
+      res.on("data", d => chunks.push(d));
+      res.on("end", () => {
+        let buffer = Buffer.concat(chunks);
+
+        if (res.headers["content-encoding"] === "gzip")
+          buffer = zlib.gunzipSync(buffer);
+
+        resolve(buffer.toString());
+      });
     });
-  }
 
-  return res.data;
+    req.on("error", reject);
+    if (data) req.write(data);
+    req.end();
+  });
 }
 
 /* ================= LOGIN ================= */
+
 async function login() {
-  console.log("🔄 Logging in...");
+  cookies = [];
 
-  const page = await request(`${CONFIG.baseUrl}/Login`);
+  const page = await request("GET", `${CONFIG.baseUrl}/login`);
 
-  // Simple CAPTCHA (1 + 1 style)
-  const match = page.match(/What is (\d+) \+ (\d+)/);
-  let ans = 6;
-  if (match) ans = Number(match[1]) + Number(match[2]);
+  // FIXED CAPTCHA REGEX
+  const match = page.match(/What is (\d+) \+ (\d+)/i);
+  let ans = match ? Number(match[1]) + Number(match[2]) : 10;
 
   const form = querystring.stringify({
     username: CONFIG.username,
@@ -64,59 +78,73 @@ async function login() {
     capt: ans
   });
 
-  await request(`${CONFIG.baseUrl}/signin`, "POST", form, {
-    "Content-Type": "application/x-www-form-urlencoded",
-    Referer: `${CONFIG.baseUrl}/Login`
-  });
+  await request(
+    "POST",
+    `${CONFIG.baseUrl}/signin`,
+    form,
+    { Referer: `${CONFIG.baseUrl}/login` }
+  );
 
-  console.log("✅ Login success");
+  console.log("✅ Logged in");
 }
 
 /* ================= FETCH NUMBERS ================= */
+
 async function getNumbers() {
   const url =
-    `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iColumns=7&sColumns=%2C%2C%2C%2C%2C%2C&iDisplayStart=0&iDisplayLength=-1`;
+    `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?` +
+    `frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
 
-  const data = await request(url, "GET", null, {
-    Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`
+  const data = await request("GET", url, null, {
+    Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
+    "X-Requested-With": "XMLHttpRequest"
   });
 
-  return JSON.parse(data);
+  return JSON.parse(data); // SAME STYLE RETURN
 }
 
 /* ================= FETCH SMS ================= */
+
 async function getSMS() {
   const url =
-    `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=2026-02-20%2000:00:00&fdate2=2026-02-20%2023:59:59&iDisplayLength=2000&iSortCol_0=0&sSortDir_0=desc`;
+    `${CONFIG.baseUrl}/agent/res/data_smscdr.php?` +
+    `fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59` +
+    `&iDisplayLength=2000&iSortCol_0=0&sSortDir_0=desc`;
 
-  const data = await request(url, "GET", null, {
-    Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`
+  const data = await request("GET", url, null, {
+    Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
+    "X-Requested-With": "XMLHttpRequest"
   });
 
-  return JSON.parse(data);
+  return JSON.parse(data); // SAME STYLE RETURN
 }
 
 /* ================= API ================= */
+
 app.get("/api", async (req, res) => {
   const type = req.query.type;
-  if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
+
+  if (!type)
+    return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
-    cookies = [];
     await login();
 
     let result;
+
     if (type === "numbers") result = await getNumbers();
     else if (type === "sms") result = await getSMS();
     else return res.json({ error: "Invalid type" });
 
-    res.json(result);
+    res.json(result); // NO CHANGE STYLE
+
   } catch (err) {
     res.json({ error: err.message });
   }
 });
 
-/* ================= START SERVER ================= */
+/* ================= START ================= */
+
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("🚀 Server running on port", PORT);
 });
