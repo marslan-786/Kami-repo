@@ -1,34 +1,17 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Dynamically load all JS files in api folder
-const modules = {};
-fs.readdirSync(path.join(__dirname, "api")).forEach(file => {
-  if (file.endsWith(".js")) {
-    const modName = file.replace(".js", "");
-    modules[modName] = require(`./api/${file}`);
-  }
+// Import all panels
+const roxy = require("./api/roxy");
+const panel1 = require("./api/msi");
+const panel2 = require("./api/panel1");
+
+// Map endpoints
+app.use("/api/roxy", roxy);
+app.use("/api/msi", msi);
+app.use("/api/panel1", panel1);
+
+app.listen(PORT, () => {
+  console.log("🚀 Server running on port", PORT);
 });
-
-app.get("/api", async (req, res) => {
-  const type = req.query.type;
-
-  try {
-    if (!type) return res.json({ error: "Use ?type=moduleName" });
-
-    const func = modules[type]?.getData;
-    if (!func) return res.json({ error: "Module not found" });
-
-    const data = await func();
-    res.json(data);
-
-  } catch (e) {
-    res.json({ error: e.message });
-  }
-});
-
-app.listen(PORT, () => console.log("🚀 Server running on port", PORT));
