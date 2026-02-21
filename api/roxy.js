@@ -4,15 +4,13 @@ const axios = require("axios");
 const router = express.Router();
 
 /* ================= CONFIG ================= */
-
 const BASE = "http://167.114.209.78/roxy";
 const USER = "Kamibroken";
 const PASS = "Kamran5.";
 
 let cookie = "";
 
-/* ================= AXIOS ================= */
-
+/* ================= AXIOS CLIENT ================= */
 const client = axios.create({
   baseURL: BASE,
   headers: {
@@ -23,7 +21,6 @@ const client = axios.create({
 });
 
 /* ================= LOGIN ================= */
-
 async function login() {
   cookie = "";
 
@@ -47,78 +44,68 @@ async function login() {
   );
 
   if (res.headers["set-cookie"]) {
-    cookie +=
-      "; " +
-      res.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
+    cookie += "; " + res.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
   }
 }
 
 /* ================= CLEAN HTML ================= */
+function clean(text = "") {
+  return text.replace(/<[^>]+>/g, "").trim();
+}
 
-const clean = txt =>
-  (txt || "").replace(/<[^>]+>/g, "").trim();
-
-/* ================= NUMBERS ================= */
-
+/* ================= FETCH NUMBERS ================= */
 async function getNumbers() {
   if (!cookie) await login();
 
   const res = await client.get(
     "/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1",
-    {
-      headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" },
-    }
+    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
   data.aaData = data.aaData.map(r => [
-    clean(r[1]),      // Range Name
-    "",               // blank column
-    clean(r[3]),      // ✅ NUMBER (MAIN FIX)
+    clean(r[1]),    // Range name
+    "",             // blank column
+    clean(r[3]),    // ✅ NUMBER
     "Weekly",
-    clean(r[4]),      // Price
-    clean(r[6]),      // Stats
+    clean(r[4]),    // Price
+    clean(r[6]),    // Stats SD: / SW:
   ]);
 
   return data;
 }
 
-/* ================= SMS ================= */
-
+/* ================= FETCH SMS ================= */
 async function getSMS() {
   if (!cookie) await login();
 
   const res = await client.get(
     "/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000",
-    {
-      headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" },
-    }
+    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
   data.aaData = data.aaData.map(r => {
-    if ((!r[4] || r[4] === "") && r[5]) {
+    if ((!r[4] || r[4].trim() === "") && r[5]) {
       r[4] = r[5];
+      r.splice(5, 1);
     }
-
-    return [
-      clean(r[1]),  // number
-      clean(r[4]),  // sms
-      clean(r[6]),  // date
-    ];
+    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
+    r[5] = r[5] || "";
+    r[6] = r[6] || "$";
+    r[7] = r[7] || 0;
+    return r.slice(0, 8);
   });
 
   return data;
 }
 
-/* ================= AUTO LOGIN ================= */
+/* ================= AUTO REFRESH ================= */
+setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
 
-setInterval(login, 10 * 60 * 1000);
-
-/* ================= ROUTE ================= */
-
+/* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
   const type = req.query.type;
 
@@ -128,12 +115,10 @@ router.get("/", async (req, res) => {
     if (type === "numbers") return res.json(await getNumbers());
     if (type === "sms") return res.json(await getSMS());
 
-    res.json({
-      usage: "/api/roxy?type=numbers OR /api/roxy?type=sms",
-    });
+    res.json({ error: "Use ?type=numbers OR ?type=sms" });
   } catch (e) {
     cookie = "";
-    res.json({ error: "Session expired" });
+    res.json({ error: "Session expired — retrying next request" });
   }
 });
 
