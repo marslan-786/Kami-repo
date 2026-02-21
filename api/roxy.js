@@ -52,6 +52,53 @@ function clean(text = "") {
   return text.replace(/<[^>]+>/g, "").trim();
 }
 
+/* ================= FIX NUMBERS ================= */
+function fixNumbers(data) {
+  if (!data.aaData) return data;
+
+  data.aaData = data.aaData.map(row => {
+    // Auto-detect country from number
+    let number = row[3] || "";
+    let country = "";
+    if (number.startsWith("60")) country = "Malaysia";
+    else if (number.startsWith("221")) country = "Senegal";
+    else if (number.startsWith("233")) country = "Ghana";
+    else if (number.startsWith("212")) country = "Morocco";
+    else country = "Unknown";
+
+    return [
+      `${country} - ${row[1] || "Unknown Range"}`, // Name + Range
+      "", // blank column
+      number,
+      "Weekly",
+      clean(row[4] || "Weekly$ 0.01"),
+      clean(row[7] || "SD : 0 | SW : 0"),
+    ];
+  });
+
+  return data;
+}
+
+/* ================= FIX SMS ================= */
+function fixSMS(data) {
+  if (!data.aaData) return data;
+
+  data.aaData = data.aaData.map(row => {
+    if ((!row[4] || row[4].trim() === "") && row[5]) {
+      row[4] = row[5]; // OTP/message always in 4th index
+    }
+
+    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
+    row[5] = row[5] || "";
+    row[6] = row[6] || "$";
+    row[7] = row[7] || 0;
+
+    return row.slice(0, 8);
+  });
+
+  return data;
+}
+
 /* ================= FETCH NUMBERS ================= */
 async function getNumbers() {
   if (!cookie) await login();
@@ -61,18 +108,7 @@ async function getNumbers() {
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
-  const data = res.data;
-
-  data.aaData = data.aaData.map(r => [
-    r[1] || "Unknown Provider",
-    "",
-    r[3] || "",
-    "Weekly",
-    clean(r[4] || ""),
-    clean(r[7] || ""),
-  ]);
-
-  return data;
+  return fixNumbers(res.data);
 }
 
 /* ================= FETCH SMS ================= */
@@ -84,22 +120,7 @@ async function getSMS() {
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
-  const data = res.data;
-
-  data.aaData = data.aaData.map(r => {
-    if ((!r[4] || r[4].trim() === "") && r[5]) {
-      r[4] = r[5]; // move SMS message to column 4
-    }
-
-    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim(); // clean unwanted text
-    r[5] = r[5] || "";
-    r[6] = r[6] || "$";
-    r[7] = r[7] || 0;
-
-    return r.slice(0, 8);
-  });
-
-  return data;
+  return fixSMS(res.data);
 }
 
 /* ================= AUTO REFRESH LOGIN ================= */
@@ -107,7 +128,8 @@ setInterval(() => login(), 10 * 60 * 1000);
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
-  const type = req.query.type;
+  const { type } = req.query;
+  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
     if (!cookie) await login();
@@ -115,7 +137,7 @@ router.get("/", async (req, res) => {
     if (type === "numbers") return res.json(await getNumbers());
     if (type === "sms") return res.json(await getSMS());
 
-    res.json({ error: "Use ?type=numbers OR ?type=sms" });
+    res.json({ error: "Invalid type" });
   } catch (e) {
     cookie = "";
     res.json({ error: "Session expired — retrying next request" });
