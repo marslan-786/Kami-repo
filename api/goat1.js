@@ -9,7 +9,7 @@ const router = express.Router();
 
 const CONFIG = {
   baseUrl: "http://167.114.117.67/ints",
-  username: "teamlegend097",  // Update your credentials
+  username: "teamlegend097",  
   password: "teamlegend097",
   userAgent: "Mozilla/5.0 (Linux; Android 13; V2040) AppleWebKit/537.36 Chrome/144 Mobile Safari/537.36"
 };
@@ -87,13 +87,16 @@ async function getNumbers() {
   const parsed = safeJSON(data);
   if (!parsed.aaData) return parsed;
 
+  // Map only relevant fields like example
   parsed.aaData = parsed.aaData.map(row => [
-    row[1],  // name
-    "",      // blank column
-    row[3],  // number
-    "Weekly",
-    (row[4] || "").replace(/<[^>]+>/g, "").trim(),
-    (row[7] || "").replace(/<[^>]+>/g, "").trim()
+    row[0] || "",   // Date/time
+    row[1] || "",   // Name
+    row[2] || "",   // Number
+    row[3] || "",   // Some code/ID
+    (row[4] || "").replace(/<[^>]+>/g, "").trim(), // SMS text cleaned
+    row[5] || "",   // Currency or symbol
+    row[6] || 0,    // Amount
+    row[7] || 0     // Extra field
   ]);
 
   return parsed;
@@ -104,22 +107,26 @@ function fixSMS(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => {
+    // If main message missing, use next column
     if (row[4] === null && row[5]) {
       row[4] = row[5];
       row.splice(5, 1);
     }
+    // Remove unwanted text like "legendhacker"
+    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
     return row;
   });
 
   return data;
 }
 
+// FETCH SMS
 async function getSMS() {
   const today = new Date();
   const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')} 00:00:00`;
   const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')} 23:59:59`;
 
-  const url = `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&iColumns=9&iDisplayStart=0&iDisplayLength=5000&iSortCol_0=0&sSortDir_0=desc&iSortingCols=1&_=${Date.now()}`;
+  const url = `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&iDisplayStart=0&iDisplayLength=5000&iSortCol_0=0&sSortDir_0=desc&_=${Date.now()}`;
   
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
