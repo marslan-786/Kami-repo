@@ -53,6 +53,7 @@ function request(method, url, data = null, extraHeaders = {}) {
       }
 
       let chunks = [];
+
       res.on("data", d => chunks.push(d));
 
       res.on("end", () => {
@@ -103,9 +104,9 @@ function fixNumbers(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => [
-    row[1] || "",
+    row[1],
     "",
-    row[3] || "",
+    row[3],
     "Weekly",
     (row[4] || "").replace(/<[^>]+>/g, "").trim(),
     (row[7] || "").replace(/<[^>]+>/g, "").trim()
@@ -130,7 +131,7 @@ function fixSMS(data) {
   return data;
 }
 
-/* ================= FETCH ================= */
+/* ================= FETCH NUMBERS ================= */
 
 async function getNumbers() {
   const url =
@@ -144,6 +145,8 @@ async function getNumbers() {
 
   return fixNumbers(safeJSON(data));
 }
+
+/* ================= FETCH SMS ================= */
 
 async function getSMS() {
   const url =
@@ -159,13 +162,9 @@ async function getSMS() {
   return fixSMS(safeJSON(data));
 }
 
-/* ================= ROUTES ================= */
+/* ================= ROUTE ================= */
 
-router.get("/", (req, res) => {
-  res.send("MSI PANEL API RUNNING ✅");
-});
-
-router.get("/api", async (req, res) => {
+router.get("/", async (req, res) => {
   const type = req.query.type;
 
   if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
