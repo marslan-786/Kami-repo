@@ -24,8 +24,10 @@ async function login() {
   cookie = "";
 
   const page = await client.get("/Login");
-  const set = page.headers["set-cookie"];
-  if (set) cookie = set.map(c => c.split(";")[0]).join("; ");
+
+  if (page.headers["set-cookie"]) {
+    cookie = page.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
+  }
 
   const match = page.data.match(/What is (\d+) \+ (\d+)/i);
   const capt = match ? Number(match[1]) + Number(match[2]) : 6;
@@ -48,7 +50,7 @@ async function login() {
 
 /* ================= CLEAN HTML ================= */
 function clean(text = "") {
-  return text.replace(/<[^>]+>/g, "").trim();
+  return text.replace(/<[^>]+>/g, "").replace("Weekly", "").trim();
 }
 
 /* ================= FETCH NUMBERS ================= */
@@ -64,20 +66,16 @@ async function getNumbers() {
 
   const data = res.data;
 
-  // 🔥 AUTO DETECT NUMBER + PRICE
-  data.aaData = data.aaData.map(r => {
-    const number = r.find(v => /^\d{6,15}$/.test(v)) || "";
-    const price = clean(r.find(v => v.includes("$")) || "");
+  if (!data.aaData) return data;
 
-    return [
-      r[0] || "",   // Name
-      "",
-      number,       // FIXED NUMBER
-      "Weekly",
-      price,
-      ""
-    ];
-  });
+  data.aaData = data.aaData.map(r => [
+    r[0] || "",              // Name
+    "",                      // Blank column
+    r[2] || "",              // Number
+    "Weekly",                // Plan
+    clean(r[4] || ""),       // Price only
+    clean(r[5] || r[7] || "")// Stats
+  ]);
 
   return data;
 }
@@ -95,23 +93,21 @@ async function getSMS() {
 
   const data = res.data;
 
-  data.aaData = data.aaData.map(r => {
-    // 🔥 OTP always move to index 4
-    if ((!r[4] || r[4] === "" || r[4] === "legendhacker") && r[5]) {
-      r[4] = r[5];
-    }
+  if (!data.aaData) return data;
 
-    // remove junk
-    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
+  data.aaData = data.aaData.map(r => {
+    let msg = r[4] || r[5] || "";
+
+    msg = msg.replace(/legendhacker/gi, "").trim();
 
     return [
       r[0],
       r[1],
       r[2],
       r[3],
-      r[4],   // ✅ OTP HERE
+      msg,
       "$",
-      r[7] || 0
+      r[7] || r[6] || 0
     ];
   });
 
@@ -121,7 +117,7 @@ async function getSMS() {
 /* ================= AUTO LOGIN ================= */
 setInterval(() => login(), 10 * 60 * 1000);
 
-/* ================= API ================= */
+/* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
   const type = req.query.type;
 
@@ -132,9 +128,10 @@ router.get("/", async (req, res) => {
     if (type === "sms") return res.json(await getSMS());
 
     res.json({ error: "Use ?type=numbers OR ?type=sms" });
+
   } catch (e) {
     cookie = "";
-    res.json({ error: "Session expired" });
+    res.json({ error: "Session expired — retrying next request" });
   }
 });
 
