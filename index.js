@@ -1,24 +1,15 @@
 const express = require("express");
 const app = express();
-
 const PORT = process.env.PORT || 3000;
 
-/* IMPORT PANELS */
 const roxy = require("./api/roxy");
-const msi = require("./api/msi");   // 💥 add this
-// const panel1 = require("./api/panel1");
+const msi = require("./api/msi");
+const np = require("./api/np");
 
-/* ROUTES */
 app.use("/api/roxy", roxy);
-app.use("/api/msi", msi);          // 💥 enable MSI
-// app.use("/api/panel1", panel1);
+app.use("/api/msi", msi);
+app.use("/api/np", np);
 
-/* HEALTH CHECK (VERY IMPORTANT FOR RAILWAY) */
-app.get("/", (req, res) => {
-  res.send("API RUNNING ✅");
-});
+app.get("/", (req,res)=> res.send("API RUNNING ✅"));
 
-/* START SERVER */
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 Server running on port", PORT);
-});
+app.listen(PORT, "0.0.0.0", ()=>console.log("🚀 Server running on port", PORT));
