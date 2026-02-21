@@ -14,8 +14,7 @@ let cookie = "";
 const client = axios.create({
   baseURL: BASE,
   headers: {
-    "User-Agent":
-      "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
   },
   validateStatus: () => true,
 });
@@ -25,7 +24,6 @@ async function login() {
   cookie = "";
 
   const page = await client.get("/Login");
-
   const set = page.headers["set-cookie"];
   if (set) cookie = set.map(c => c.split(";")[0]).join("; ");
 
@@ -64,13 +62,14 @@ async function getNumbers() {
 
   const data = res.data;
 
+  // ✅ Correct columns mapping
   data.aaData = data.aaData.map(r => [
-    clean(r[1]),    // Range name
-    "",             // blank column
-    clean(r[3]),    // ✅ NUMBER
-    "Weekly",
-    clean(r[4]),    // Price
-    clean(r[6]),    // Stats SD: / SW:
+    clean(r[1]),   // Range name
+    "",            // Blank
+    clean(r[3]),   // NUMBER
+    clean(r[4]),   // Weekly
+    clean(r[5]),   // Price
+    clean(r[6])    // Stats
   ]);
 
   return data;
@@ -87,23 +86,20 @@ async function getSMS() {
 
   const data = res.data;
 
+  // ✅ SMS clean
   data.aaData = data.aaData.map(r => {
-    if ((!r[4] || r[4].trim() === "") && r[5]) {
+    if (r[4] === null && r[5]) {
       r[4] = r[5];
       r.splice(5, 1);
     }
-    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
-    r[5] = r[5] || "";
-    r[6] = r[6] || "$";
-    r[7] = r[7] || 0;
-    return r.slice(0, 8);
+    return r;
   });
 
   return data;
 }
 
-/* ================= AUTO REFRESH ================= */
-setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
+/* ================= AUTO REFRESH LOGIN ================= */
+setInterval(login, 10 * 60 * 1000); // every 10 min
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
