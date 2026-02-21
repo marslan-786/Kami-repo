@@ -1,22 +1,22 @@
-// api/goat.js
 const express = require("express");
 const http = require("http");
 const https = require("https");
 const zlib = require("zlib");
 const querystring = require("querystring");
 
-const app = express.Router();
+const router = express.Router();
 
 const CONFIG = {
   baseUrl: "http://167.114.117.67/ints",
   username: "teamlegend097",
   password: "teamlegend097",
   userAgent:
-    "Mozilla/5.0 (Linux; Android 13; V2040 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.7559.132 Mobile Safari/537.36"
+    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile"
 };
 
 let cookies = [];
 
+/* ================= SAFE JSON ================= */
 function safeJSON(text) {
   try {
     return JSON.parse(text);
@@ -52,11 +52,13 @@ function request(method, url, data = null, extraHeaders = {}) {
 
       let chunks = [];
       res.on("data", d => chunks.push(d));
+
       res.on("end", () => {
         let buffer = Buffer.concat(chunks);
         try {
-          if (res.headers["content-encoding"] === "gzip")
+          if (res.headers["content-encoding"] === "gzip") {
             buffer = zlib.gunzipSync(buffer);
+          }
         } catch {}
         resolve(buffer.toString());
       });
@@ -75,12 +77,12 @@ async function login() {
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
 
   const match = page.match(/What is (\d+) \+ (\d+)/i);
-  const ans = match ? Number(match[1]) + Number(match[2]) : 10;
+  const capt = match ? Number(match[1]) + Number(match[2]) : 10;
 
   const form = querystring.stringify({
     username: CONFIG.username,
     password: CONFIG.password,
-    capt: ans
+    capt
   });
 
   await request(
@@ -96,93 +98,97 @@ function fixNumbers(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => [
-    row[1],  // Name
-    "",      // Blank column
-    row[3],  // Number
+    row[1],
+    "",
+    row[3],
     "Weekly",
     (row[4] || "").replace(/<[^>]+>/g, "").trim(),
-    "$",
-    (row[6] || 0),
-    (row[7] || 0)
+    (row[7] || "").replace(/<[^>]+>/g, "").trim()
   ]);
 
   return data;
 }
 
-/* ================= FIX SMS ================= */
+/* ================= FIX SMS (FINAL CORRECT) ================= */
 function fixSMS(data) {
   if (!data.aaData) return data;
 
-  data.aaData = data.aaData.map(row => {
-    // OTP message always 5th column
-    if ((!row[4] || row[4].trim() === "") && row[5]) {
-      row[4] = row[5].trim();
-    }
+  data.aaData = data.aaData
+    .map(row => {
+      let message = (row[5] || "")
+        .replace(/legendhacker/gi, "")
+        .trim();
 
-    // Remove unwanted legendhacker text
-    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
+      if (!message) return null;
 
-    // Fill default columns
-    row[5] = row[5] || "";
-    row[6] = row[6] || "$";
-    row[7] = row[7] || 0;
-
-    // Keep only first 8 columns
-    row = row.slice(0, 8);
-
-    return row;
-  });
-
-  // Remove any extra summary/empty rows at the end
-  data.aaData = data.aaData.filter(row => {
-    const msg = row[4] || "";
-    return msg.trim() !== "" && msg.toLowerCase() !== "legendhacker";
-  });
+      return [
+        row[0], // date
+        row[1], // range
+        row[2], // number
+        row[3], // service
+        message, // OTP MESSAGE
+        "$",
+        row[7] || 0
+      ];
+    })
+    .filter(Boolean);
 
   return data;
 }
 
 /* ================= FETCH NUMBERS ================= */
 async function getNumbers() {
-  const url = `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+  const url =
+    `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?` +
+    `frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
     "X-Requested-With": "XMLHttpRequest"
   });
+
   return fixNumbers(safeJSON(data));
 }
 
 /* ================= FETCH SMS ================= */
 async function getSMS() {
   const today = new Date();
-  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
-  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
 
-  const url = `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&iDisplayStart=0&iDisplayLength=5000`;
+  const d = `${today.getFullYear()}-${String(
+    today.getMonth() + 1
+  ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  const url =
+    `${CONFIG.baseUrl}/agent/res/data_smscdr.php?` +
+    `fdate1=${d}%2000:00:00&fdate2=${d}%2023:59:59` +
+    `&frange=&fclient=&fnum=&fcli=&fg=0&iDisplayLength=5000`;
+
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
     "X-Requested-With": "XMLHttpRequest"
   });
+
   return fixSMS(safeJSON(data));
 }
 
 /* ================= API ROUTE ================= */
-app.get("/", async (req, res) => {
+router.get("/", async (req, res) => {
   const { type } = req.query;
-  if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
+
+  if (!type) {
+    return res.json({ error: "Use ?type=numbers or ?type=sms" });
+  }
 
   try {
     await login();
 
-    let result;
-    if (type === "numbers") result = await getNumbers();
-    else if (type === "sms") result = await getSMS();
-    else return res.json({ error: "Invalid type" });
+    if (type === "numbers") return res.json(await getNumbers());
+    if (type === "sms") return res.json(await getSMS());
 
-    res.json(result);
+    res.json({ error: "Invalid type" });
   } catch (err) {
     res.json({ error: err.message });
   }
 });
 
-module.exports = app;
+module.exports = router;
