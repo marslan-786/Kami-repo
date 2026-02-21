@@ -1,26 +1,24 @@
-// api/roxy.js
 const express = require("express");
 const axios = require("axios");
 const router = express.Router();
 
-/* ================= CONFIG ================= */
+// ================= CONFIG =================
 const BASE = "http://167.114.209.78/roxy";
 const USER = "Kamibroken";
 const PASS = "Kamran5.";
 
 let cookie = "";
 
-/* ================= AXIOS CLIENT ================= */
+// ================= AXIOS CLIENT =================
 const client = axios.create({
   baseURL: BASE,
   headers: {
-    "User-Agent":
-      "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
   },
   validateStatus: () => true,
 });
 
-/* ================= LOGIN ================= */
+// ================= LOGIN =================
 async function login() {
   cookie = "";
 
@@ -47,36 +45,29 @@ async function login() {
   }
 }
 
-/* ================= CLEAN HTML ================= */
+// ================= COUNTRY DETECTION =================
+const countries = {
+  "20": "Egypt",
+  "221": "Senegal",
+  "232": "Sierra Leone",
+  "60": "Malaysia",
+  // aur countries add kar sakte ho
+};
+
+function detectCountry(number) {
+  if (!number) return "Unknown";
+  for (let code in countries) {
+    if (number.startsWith(code)) return countries[code];
+  }
+  return "Unknown";
+}
+
+// ================= CLEAN HTML =================
 function clean(text = "") {
   return text.replace(/<[^>]+>/g, "").trim();
 }
 
-/* ================= FIX NUMBERS ================= */
-function fixNumbers(data) {
-  if (!data.aaData) return data;
-
-  data.aaData = data.aaData.map(row => {
-    const range = clean(row[0] || row[1] || "Unknown Provider");
-    const number = row[2] || row[3] || "";
-    const weekly = "Weekly";
-    const price = clean(row[4] || "$ 0.01");
-    const sdSw = clean(row[5] || row[7] || "SD : 0 | SW : 0");
-
-    return [
-      range,   // Column 1: Range / Provider
-      "",      // Column 2: blank
-      number,  // Column 3: Number
-      weekly,  // Column 4: Weekly
-      price,   // Column 5: Price
-      sdSw     // Column 6: SD/SW
-    ];
-  });
-
-  return data;
-}
-
-/* ================= FETCH NUMBERS ================= */
+// ================= FETCH NUMBERS =================
 async function getNumbers() {
   if (!cookie) await login();
 
@@ -86,41 +77,63 @@ async function getNumbers() {
   );
 
   const data = res.data;
-  return fixNumbers(data);
-}
 
-/* ================= FETCH SMS ================= */
-async function getSMS() {
-  if (!cookie) await login();
-
-  const res = await client.get(
-    "/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000",
-    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
-  );
-
-  const data = res.data;
-
-  // Move SMS/OTP to column 4 if missing
   data.aaData = data.aaData.map(r => {
-    if ((!r[4] || r[4].trim() === "") && r[5]) {
-      r[4] = r[5];
-      r.splice(5, 1);
-    }
-    // Remove unwanted text
-    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
-    r[5] = r[5] || "";
-    r[6] = r[6] || "$";
-    r[7] = r[7] || 0;
-    return r.slice(0, 8);
+    const number = r[3] || "";
+    const countryName = detectCountry(number);
+    const rangeName = `${countryName} ${clean(r[1] || "")}`.trim();
+
+    return [
+      rangeName,                     // Column 1: Country + Range
+      "",                             // Column 2: blank
+      number,                         // Column 3: Number
+      "Weekly",                       // Column 4
+      clean(r[4] || "$ 0.01"),        // Column 5: Price
+      clean(r[5] || r[7] || "SD : 0 | SW : 0") // Column 6: SD/SW
+    ];
   });
 
   return data;
 }
 
-/* ================= AUTO REFRESH ================= */
-setInterval(login, 10 * 60 * 1000); // every 10 minutes
+// ================= FETCH SMS =================
+async function getSMS() {
+  if (!cookie) await login();
 
-/* ================= API ROUTE ================= */
+  const today = new Date();
+  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
+  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
+
+  const res = await client.get(
+    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=5000`,
+    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
+  );
+
+  const data = res.data;
+
+  data.aaData = data.aaData.map(r => {
+    // Move message/OTP to column 4
+    if ((!r[4] || r[4].trim() === "") && r[5]) {
+      r[4] = r[5];
+    }
+
+    // Remove unwanted text
+    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
+
+    r[5] = r[5] || "";
+    r[6] = r[6] || "$";
+    r[7] = r[7] || 0;
+
+    return r.slice(0,8);
+  });
+
+  return data;
+}
+
+// ================= AUTO REFRESH LOGIN =================
+setInterval(() => login(), 10 * 60 * 1000);
+
+// ================= API =================
 router.get("/", async (req, res) => {
   const type = req.query.type;
   if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
