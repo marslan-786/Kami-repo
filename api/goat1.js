@@ -5,7 +5,7 @@ const https = require("https");
 const zlib = require("zlib");
 const querystring = require("querystring");
 
-const router = express.Router();
+const app = express.Router();
 
 const CONFIG = {
   baseUrl: "http://167.114.117.67/ints",
@@ -17,7 +17,6 @@ const CONFIG = {
 
 let cookies = [];
 
-// Safe JSON parse
 function safeJSON(text) {
   try {
     return JSON.parse(text);
@@ -72,7 +71,9 @@ function request(method, url, data = null, extraHeaders = {}) {
 /* ================= LOGIN ================= */
 async function login() {
   cookies = [];
+
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
+
   const match = page.match(/What is (\d+) \+ (\d+)/i);
   const ans = match ? Number(match[1]) + Number(match[2]) : 10;
 
@@ -112,23 +113,30 @@ function fixNumbers(data) {
 function fixSMS(data) {
   if (!data.aaData) return data;
 
-  data.aaData = data.aaData.map((row, index) => {
-    if (index === 0) {
-      // Ensure message is in 5th column
-      if (!row[4] || row[4].trim() === "") {
-        row[4] = row[5] || "";
-      }
-      row[4] = row[4].trim();
-      row[5] = row[5] || "$";
-      row[6] = row[6] || 0;
-      row[7] = row[7] || 0;
-      row = row.slice(0, 8);
+  data.aaData = data.aaData.map(row => {
+    // OTP message always 5th column
+    if ((!row[4] || row[4].trim() === "") && row[5]) {
+      row[4] = row[5].trim();
     }
-    if (index === 1) {
-      // Second summary row
-      row = ["legendhacker", "$", 0];
-    }
+
+    // Remove unwanted legendhacker text
+    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
+
+    // Fill default columns
+    row[5] = row[5] || "";
+    row[6] = row[6] || "$";
+    row[7] = row[7] || 0;
+
+    // Keep only first 8 columns
+    row = row.slice(0, 8);
+
     return row;
+  });
+
+  // Remove any extra summary/empty rows at the end
+  data.aaData = data.aaData.filter(row => {
+    const msg = row[4] || "";
+    return msg.trim() !== "" && msg.toLowerCase() !== "legendhacker";
   });
 
   return data;
@@ -159,12 +167,13 @@ async function getSMS() {
 }
 
 /* ================= API ROUTE ================= */
-router.get("/", async (req, res) => {
+app.get("/", async (req, res) => {
   const { type } = req.query;
   if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
 
   try {
     await login();
+
     let result;
     if (type === "numbers") result = await getNumbers();
     else if (type === "sms") result = await getSMS();
@@ -176,4 +185,4 @@ router.get("/", async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = app;
