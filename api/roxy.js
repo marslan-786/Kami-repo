@@ -1,9 +1,9 @@
 const express = require("express");
 const axios = require("axios");
+const { parsePhoneNumberFromString } = require("libphonenumber-js"); // npm i libphonenumber-js
 
 const router = express.Router();
 
-/* ================= CONFIG ================= */
 const BASE = "http://167.114.209.78/roxy"; // Roxy API
 const USER = "Kamibroken";
 const PASS = "Kamran5.";
@@ -13,9 +13,7 @@ let cookie = "";
 /* ================= AXIOS CLIENT ================= */
 const client = axios.create({
   baseURL: BASE,
-  headers: {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile"
-  },
+  headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 13)" },
   validateStatus: () => true
 });
 
@@ -33,12 +31,7 @@ async function login() {
   const res = await client.post(
     "/signin",
     `username=${USER}&password=${PASS}&capt=${capt}`,
-    {
-      headers: {
-        Cookie: cookie,
-        "Content-Type": "application/x-www-form-urlencoded"
-      }
-    }
+    { headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" } }
   );
 
   if (res.headers["set-cookie"]) {
@@ -51,20 +44,28 @@ function clean(text = "") {
   return text.replace(/<[^>]+>/g, "").trim();
 }
 
-/* ================= DETECT COUNTRY ================= */
-function getCountryFromNumber(number) {
-  if (!number) return "Unknown";
-  const code = number.startsWith("0") ? number.slice(1,4) : number.slice(0,3);
-  const countries = {
-    "601": "Malaysia",
-    "221": "Senegal",
-    "20":  "Egypt",
-    "233": "Ghana",
-    "44":  "UK",
-    "1":   "USA"
-    // Add more codes if needed
-  };
-  return countries[code] || "Unknown";
+/* ================= FIX NUMBERS ================= */
+function fixNumbers(data) {
+  if (!data.aaData) return data;
+
+  return data.aaData.map(row => {
+    const number = row[3] || "";
+    let country = "Unknown";
+
+    try {
+      const pn = parsePhoneNumberFromString(number);
+      if (pn) country = pn.country || "Unknown";
+    } catch {}
+
+    return [
+      country,        // Auto-detected country
+      "",             // blank
+      number,         // actual number
+      "Weekly",
+      clean(row[4] || ""),
+      clean(row[7] || "")
+    ];
+  });
 }
 
 /* ================= FETCH NUMBERS ================= */
@@ -76,21 +77,7 @@ async function getNumbers() {
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
-  const data = res.data;
-
-  data.aaData = data.aaData.map(r => {
-    const number = r[2] || "";
-    return [
-      getCountryFromNumber(number),   // Country Name
-      "",                             // Blank column
-      number,                         // Number
-      "Weekly",                       // Plan
-      r[4] && r[4].trim() ? clean(r[4]) : "Weekly$ 0.01", // Plan Amount
-      r[5] && r[5].trim() ? clean(r[5]) : "SD : 0 | SW : 0" // Stats
-    ];
-  });
-
-  return data;
+  return fixNumbers(res.data);
 }
 
 /* ================= FETCH SMS ================= */
@@ -108,20 +95,13 @@ async function getSMS() {
 
   const data = res.data;
 
+  // Move SMS/OTP to column 4 and clean
   data.aaData = data.aaData.map(r => {
-    // OTP / message always column 4
-    if ((!r[4] || r[4].trim() === "") && r[5]) {
-      r[4] = r[5];
-    }
-
-    // Remove legendhacker
+    if ((!r[4] || r[4].trim() === "") && r[5]) r[4] = r[5];
     r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
-
-    // Fill remaining columns
     r[5] = r[5] || "";
     r[6] = r[6] || "$";
     r[7] = r[7] || 0;
-
     return r.slice(0, 8);
   });
 
@@ -138,13 +118,10 @@ router.get("/", async (req, res) => {
 
   try {
     if (!cookie) await login();
+    if (type === "numbers") return res.json(await getNumbers());
+    if (type === "sms") return res.json(await getSMS());
 
-    let result;
-    if (type === "numbers") result = await getNumbers();
-    else if (type === "sms") result = await getSMS();
-    else return res.json({ error: "Invalid type" });
-
-    res.json(result);
+    res.json({ error: "Invalid type" });
   } catch (e) {
     cookie = "";
     res.json({ error: "Session expired — retrying next request" });
