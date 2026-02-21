@@ -5,7 +5,7 @@ const https = require("https");
 const zlib = require("zlib");
 const querystring = require("querystring");
 
-const app = express.Router();
+const router = express.Router();
 
 const CONFIG = {
   baseUrl: "http://167.114.117.67/ints",
@@ -17,7 +17,6 @@ const CONFIG = {
 
 let cookies = [];
 
-// Safe JSON parse
 function safeJSON(text) {
   try {
     return JSON.parse(text);
@@ -74,6 +73,7 @@ async function login() {
   cookies = [];
 
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
+
   const match = page.match(/What is (\d+) \+ (\d+)/i);
   const ans = match ? Number(match[1]) + Number(match[2]) : 10;
 
@@ -83,9 +83,12 @@ async function login() {
     capt: ans
   });
 
-  await request("POST", `${CONFIG.baseUrl}/signin`, form, {
-    Referer: `${CONFIG.baseUrl}/login`
-  });
+  await request(
+    "POST",
+    `${CONFIG.baseUrl}/signin`,
+    form,
+    { Referer: `${CONFIG.baseUrl}/login` }
+  );
 }
 
 /* ================= FIX NUMBERS ================= */
@@ -93,14 +96,14 @@ function fixNumbers(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => [
-    row[1],      // Name
-    "",          // Blank column
-    row[3],      // Number
-    "Weekly",    // Type
-    (row[4] || "").replace(/<[^>]+>/g, "").trim(), // Info
-    "$",         // Currency
-    row[6] || 0, // Some numeric value
-    row[7] || 0  // Some numeric value
+    row[1],        // Name
+    "",            // Blank
+    row[3],        // Number
+    "Weekly",      // Type
+    (row[4] || "").replace(/<[^>]+>/g, "").trim(), // Message
+    "$",           // Currency
+    (row[6] || 0),
+    (row[7] || 0)
   ]);
 
   return data;
@@ -111,21 +114,18 @@ function fixSMS(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => {
-    // Agar 5th column empty ho aur 6th column me message ho, shift kar do
+    // Hamesha 5th column me message rakho
     if ((!row[4] || row[4].trim() === "") && row[5]) {
-      row[4] = row[5]; // OTP/message ko 5th column me le aaye
-      row[5] = "";     // 6th column blank
+      row[4] = row[5];
+      row[5] = "";
     }
 
-    // Remove unwanted text
-    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
-
-    // Fill default columns
+    row[4] = row[4] || ""; // message column
     row[5] = row[5] || ""; // blank
     row[6] = row[6] || "$";
     row[7] = row[7] || 0;
 
-    return row.slice(0, 8); // sirf first 8 columns
+    return row.slice(0, 8);
   });
 
   return data;
@@ -133,7 +133,7 @@ function fixSMS(data) {
 
 /* ================= FETCH NUMBERS ================= */
 async function getNumbers() {
-  const url = `${CONFIG.baseUrl}/agent/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+  const url = `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
     "X-Requested-With": "XMLHttpRequest"
@@ -156,7 +156,7 @@ async function getSMS() {
 }
 
 /* ================= API ROUTE ================= */
-app.get("/", async (req, res) => {
+router.get("/", async (req, res) => {
   const { type } = req.query;
   if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
 
@@ -174,4 +174,4 @@ app.get("/", async (req, res) => {
   }
 });
 
-module.exports = app;
+module.exports = router;
