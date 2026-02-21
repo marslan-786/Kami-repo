@@ -8,15 +8,14 @@ const router = express.Router();
 
 const CONFIG = {
   baseUrl: "http://167.114.117.67/ints",
-  username: "Kami526",    // apna username
-  password: "Kami526",    // apna password
+  username: "Kami526",
+  password: "Kami526",
   userAgent:
-    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile Safari/537.36"
 };
 
 let cookies = [];
 
-/* ======= HELPERS ======= */
 function safeJSON(text) {
   try {
     return JSON.parse(text);
@@ -25,6 +24,7 @@ function safeJSON(text) {
   }
 }
 
+/* ================= REQUEST ================= */
 function request(method, url, data = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith("https") ? https : http;
@@ -67,13 +67,13 @@ function request(method, url, data = null, extraHeaders = {}) {
   });
 }
 
-/* ======= LOGIN ======= */
+/* ================= LOGIN ================= */
 async function login() {
   cookies = [];
-  const page = await request("GET", `${CONFIG.baseUrl}/login`);
 
+  const page = await request("GET", `${CONFIG.baseUrl}/login`);
   const match = page.match(/What is (\d+) \+ (\d+)/i);
-  const ans = match ? Number(match[1]) + Number(match[2]) : 10;
+  const ans = match ? Number(match[1]) + Number(match[2]) : 0;
 
   const form = querystring.stringify({
     username: CONFIG.username,
@@ -81,29 +81,39 @@ async function login() {
     capt: ans
   });
 
-  await request("POST", `${CONFIG.baseUrl}/signin`, form, {
-    Referer: `${CONFIG.baseUrl}/login`
-  });
+  await request(
+    "POST",
+    `${CONFIG.baseUrl}/signin`,
+    form,
+    { Referer: `${CONFIG.baseUrl}/login` }
+  );
 }
 
-/* ======= FETCH NUMBERS ======= */
+/* ================= FETCH NUMBERS ================= */
 async function getNumbers() {
-  const url = `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+  const ts = Date.now();
+
+  const url =
+    `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?` +
+    `frange=&fclient=&sEcho=2&iColumns=8&sColumns=%2C%2C%2C%2C%2C%2C%2C` +
+    `&iDisplayStart=0&iDisplayLength=-1` +
+    `&mDataProp_0=0&mDataProp_1=1&mDataProp_2=2&mDataProp_3=3` +
+    `&mDataProp_4=4&mDataProp_5=5&mDataProp_6=6&mDataProp_7=7` +
+    `&sSearch=&bRegex=false&iSortCol_0=0&sSortDir_0=asc&iSortingCols=1&_=${ts}`;
+
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  if (!data) return [];
   const json = safeJSON(data);
 
-  if (!json.aaData) return [];
+  if (!json.aaData) return json;
 
-  // Clean numbers like Roxy
   json.aaData = json.aaData.map(row => [
-    row[1], // name
+    row[1],
     "",
-    row[3], // number
+    row[3],
     "Weekly",
     (row[4] || "").replace(/<[^>]+>/g, "").trim(),
     (row[7] || "").replace(/<[^>]+>/g, "").trim()
@@ -112,35 +122,35 @@ async function getNumbers() {
   return json;
 }
 
-/* ======= FETCH SMS ======= */
+/* ================= FETCH SMS ================= */
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 async function getSMS() {
-  const url = `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000&iSortCol_0=0&sSortDir_0=desc`;
+  const d = today();
+  const ts = Date.now();
+
+  const url =
+    `${CONFIG.baseUrl}/agent/res/data_smscdr.php?` +
+    `fdate1=${d}%2000:00:00&fdate2=${d}%2023:59:59&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0` +
+    `&sEcho=1&iColumns=9&sColumns=%2C%2C%2C%2C%2C%2C%2C%2C&iDisplayStart=0&iDisplayLength=5000` +
+    `&mDataProp_0=0&mDataProp_1=1&mDataProp_2=2&mDataProp_3=3&mDataProp_4=4&mDataProp_5=5&mDataProp_6=6&mDataProp_7=7&mDataProp_8=8` +
+    `&sSearch=&bRegex=false&iSortCol_0=0&sSortDir_0=desc&iSortingCols=1&_=${ts}`;
+
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  if (!data) return [];
-  const json = safeJSON(data);
-
-  if (!json.aaData) return [];
-
-  json.aaData = json.aaData.map(row => {
-    if (row[4] === null && row[5]) {
-      row[4] = row[5];
-      row.splice(5, 1);
-    }
-    return row;
-  });
-
-  return json;
+  return safeJSON(data);
 }
 
-/* ======= ROUTE ======= */
+/* ================= API ================= */
 router.get("/", async (req, res) => {
-  const type = req.query.type;
-
-  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
+  const { type } = req.query;
+  if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
 
   try {
     await login();
