@@ -1,9 +1,11 @@
+// api/roxy.js
 const express = require("express");
 const axios = require("axios");
-const { parsePhoneNumberFromString } = require("libphonenumber-js"); // npm i libphonenumber-js
+const { parsePhoneNumberFromString } = require("libphonenumber-js");
 
 const router = express.Router();
 
+/* ================= CONFIG ================= */
 const BASE = "http://167.114.209.78/roxy"; // Roxy API
 const USER = "Kamibroken";
 const PASS = "Kamran5.";
@@ -13,8 +15,11 @@ let cookie = "";
 /* ================= AXIOS CLIENT ================= */
 const client = axios.create({
   baseURL: BASE,
-  headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 13)" },
-  validateStatus: () => true
+  headers: {
+    "User-Agent":
+      "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
+  },
+  validateStatus: () => true,
 });
 
 /* ================= LOGIN ================= */
@@ -23,7 +28,7 @@ async function login() {
 
   const page = await client.get("/Login");
   const set = page.headers["set-cookie"];
-  if (set) cookie = set.map(c => c.split(";")[0]).join("; ");
+  if (set) cookie = set.map((c) => c.split(";")[0]).join("; ");
 
   const match = page.data.match(/What is (\d+) \+ (\d+)/i);
   const capt = match ? Number(match[1]) + Number(match[2]) : 6;
@@ -31,11 +36,17 @@ async function login() {
   const res = await client.post(
     "/signin",
     `username=${USER}&password=${PASS}&capt=${capt}`,
-    { headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" } }
+    {
+      headers: {
+        Cookie: cookie,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    }
   );
 
   if (res.headers["set-cookie"]) {
-    cookie += "; " + res.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
+    cookie +=
+      "; " + res.headers["set-cookie"].map((c) => c.split(";")[0]).join("; ");
   }
 }
 
@@ -44,28 +55,14 @@ function clean(text = "") {
   return text.replace(/<[^>]+>/g, "").trim();
 }
 
-/* ================= FIX NUMBERS ================= */
-function fixNumbers(data) {
-  if (!data.aaData) return data;
-
-  return data.aaData.map(row => {
-    const number = row[3] || "";
-    let country = "Unknown";
-
-    try {
-      const pn = parsePhoneNumberFromString(number);
-      if (pn) country = pn.country || "Unknown";
-    } catch {}
-
-    return [
-      country,        // Auto-detected country
-      "",             // blank
-      number,         // actual number
-      "Weekly",
-      clean(row[4] || ""),
-      clean(row[7] || "")
-    ];
-  });
+/* ================= AUTO COUNTRY DETECT ================= */
+function getCountry(number) {
+  try {
+    const pn = parsePhoneNumberFromString(number);
+    return pn ? pn.country : "Unknown";
+  } catch {
+    return "Unknown";
+  }
 }
 
 /* ================= FETCH NUMBERS ================= */
@@ -77,31 +74,64 @@ async function getNumbers() {
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
-  return fixNumbers(res.data);
+  const data = res.data;
+
+  if (!data.aaData) return data;
+
+  // Clean numbers + country auto detect
+  data.aaData = data.aaData.map((r) => {
+    const number = r[2] || "";
+    const country = getCountry(number);
+
+    return [
+      country, // Column 1 = Country Name
+      "", // blank
+      number, // Column 3 = Number
+      "Weekly",
+      r[4] && r[4].trim() ? clean(r[4]) : "Weekly$ 0.01",
+      r[5] && r[5].trim() ? clean(r[5]) : "SD : 0 | SW : 0",
+    ];
+  });
+
+  return data;
 }
 
-/* ================= FETCH SMS ================= */
+/* ================= FETCH SMS / OTP ================= */
 async function getSMS() {
   if (!cookie) await login();
 
   const today = new Date();
-  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
-  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
+  const fdate1 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(today.getDate()).padStart(2, "0")} 00:00:00`;
+  const fdate2 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(today.getDate()).padStart(2, "0")} 23:59:59`;
 
   const res = await client.get(
-    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=5000`,
+    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(
+      fdate1
+    )}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=5000`,
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
-  // Move SMS/OTP to column 4 and clean
-  data.aaData = data.aaData.map(r => {
-    if ((!r[4] || r[4].trim() === "") && r[5]) r[4] = r[5];
+  if (!data.aaData) return data;
+
+  // Clean SMS / OTP messages
+  data.aaData = data.aaData.map((r) => {
+    if ((!r[4] || r[4].trim() === "") && r[5]) {
+      r[4] = r[5]; // move message to column 4
+    }
+
     r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
     r[5] = r[5] || "";
     r[6] = r[6] || "$";
     r[7] = r[7] || 0;
+
     return r.slice(0, 8);
   });
 
@@ -109,7 +139,7 @@ async function getSMS() {
 }
 
 /* ================= AUTO REFRESH LOGIN ================= */
-setInterval(() => login(), 10 * 60 * 1000);
+setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
@@ -118,13 +148,16 @@ router.get("/", async (req, res) => {
 
   try {
     if (!cookie) await login();
-    if (type === "numbers") return res.json(await getNumbers());
-    if (type === "sms") return res.json(await getSMS());
 
-    res.json({ error: "Invalid type" });
+    let result;
+    if (type === "numbers") result = await getNumbers();
+    else if (type === "sms") result = await getSMS();
+    else return res.json({ error: "Invalid type" });
+
+    res.json(result);
   } catch (e) {
     cookie = "";
-    res.json({ error: "Session expired — retrying next request" });
+    res.json({ error: "Session expired — retrying next request", details: e.message });
   }
 });
 
