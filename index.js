@@ -17,18 +17,15 @@ const CONFIG = {
 
 let cookies = [];
 
-/* ================= SAFE JSON ================= */
-
 function safeJSON(text) {
   try {
     return JSON.parse(text);
-  } catch (e) {
-    console.log("JSON ERROR:", text);
+  } catch {
     return { error: "Invalid JSON from server" };
   }
 }
 
-/* ================= REQUEST HELPER ================= */
+/* ================= REQUEST ================= */
 
 function request(method, url, data = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
@@ -55,7 +52,6 @@ function request(method, url, data = null, extraHeaders = {}) {
       }
 
       let chunks = [];
-
       res.on("data", d => chunks.push(d));
 
       res.on("end", () => {
@@ -100,7 +96,26 @@ async function login() {
   );
 }
 
-/* ================= FIX NULL SMS ================= */
+/* ================= CLEAN NUMBERS ================= */
+
+function fixNumbers(data) {
+  if (!data.aaData) return data;
+
+  data.aaData = data.aaData.map(row => {
+    return [
+      row[1], // name
+      "", // blank column
+      row[3], // number
+      "Weekly",
+      (row[4] || "").replace(/<[^>]+>/g, "").trim(),
+      (row[7] || "").replace(/<[^>]+>/g, "").trim()
+    ];
+  });
+
+  return data;
+}
+
+/* ================= FIX SMS ================= */
 
 function fixSMS(data) {
   if (!data.aaData) return data;
@@ -108,7 +123,7 @@ function fixSMS(data) {
   data.aaData = data.aaData.map(row => {
     if (row[4] === null && row[5]) {
       row[4] = row[5];
-      row.splice(5, 1); // remove extra column
+      row.splice(5, 1);
     }
     return row;
   });
@@ -128,7 +143,7 @@ async function getNumbers() {
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  return safeJSON(data);
+  return fixNumbers(safeJSON(data));
 }
 
 /* ================= FETCH SMS ================= */
@@ -152,8 +167,7 @@ async function getSMS() {
 app.get("/api", async (req, res) => {
   const type = req.query.type;
 
-  if (!type)
-    return res.json({ error: "Use ?type=numbers OR ?type=sms" });
+  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
     await login();
