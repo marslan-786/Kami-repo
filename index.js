@@ -10,7 +10,8 @@ const msi1 = require("./api/msi1");
 const np = require("./api/np");
 const np1 = require("./api/np1");
 const np2 = require("./api/np2");
-const goat = require("./api/goat");  // <-- NEW
+const goat = require("./api/goat");
+const goat1 = require("./api/goat1");  // <-- NEW
 
 // --- ROUTES ---
 app.use("/api/roxy", roxy);
@@ -20,7 +21,8 @@ app.use("/api/msi1", msi1);
 app.use("/api/np", np);
 app.use("/api/np1", np1);
 app.use("/api/np2", np2);
-app.use("/api/goat", goat); // <-- NEW
+app.use("/api/goat", goat);
+app.use("/api/goat1", goat1); // <-- NEW
 
 // --- HEALTH CHECK ---
 app.get("/", (req,res)=> res.send("API RUNNING ✅"));
