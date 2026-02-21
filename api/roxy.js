@@ -1,3 +1,4 @@
+// api/roxy.js
 const express = require("express");
 const axios = require("axios");
 const router = express.Router();
@@ -13,7 +14,8 @@ let cookie = "";
 const client = axios.create({
   baseURL: BASE,
   headers: {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
+    "User-Agent":
+      "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
   },
   validateStatus: () => true,
 });
@@ -47,7 +49,7 @@ async function login() {
 
 /* ================= CLEAN HTML ================= */
 function clean(text = "") {
-  return text.replace(/<[^>]+>/g, "").replace(/\n|\r/g, "").trim();
+  return text.replace(/<[^>]+>/g, "").trim();
 }
 
 /* ================= FIX NUMBERS ================= */
@@ -55,42 +57,20 @@ function fixNumbers(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => {
+    const range = clean(row[0] || row[1] || "Unknown Provider");
     const number = row[2] || row[3] || "";
-    const range = row[0] || row[1] || "";
-    const price = clean(row[4]) || "$ 0.01";
-    const sd = clean(row[5] || row[7]) || "SD : 0 | SW : 0";
+    const weekly = "Weekly";
+    const price = clean(row[4] || "$ 0.01");
+    const sdSw = clean(row[5] || row[7] || "SD : 0 | SW : 0");
 
     return [
-      range,     // Column 1: Range / Provider
-      "",        // Column 2: blank
-      number,    // Column 3: Number
-      "Weekly",  // Column 4
-      price,     // Column 5: Price
-      sd         // Column 6: SD/SW
+      range,   // Column 1: Range / Provider
+      "",      // Column 2: blank
+      number,  // Column 3: Number
+      weekly,  // Column 4: Weekly
+      price,   // Column 5: Price
+      sdSw     // Column 6: SD/SW
     ];
-  });
-
-  return data;
-}
-
-/* ================= FIX SMS ================= */
-function fixSMS(data) {
-  if (!data.aaData) return data;
-
-  data.aaData = data.aaData.map(row => {
-    if ((!row[4] || row[4].trim() === "") && row[5]) {
-      row[4] = row[5];
-    }
-
-    // Remove unwanted text
-    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
-
-    // Fill missing columns
-    row[5] = row[5] || "";
-    row[6] = row[6] || "$";
-    row[7] = row[7] || 0;
-
-    return row.slice(0, 8);
   });
 
   return data;
@@ -105,7 +85,8 @@ async function getNumbers() {
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
-  return fixNumbers(res.data);
+  const data = res.data;
+  return fixNumbers(data);
 }
 
 /* ================= FETCH SMS ================= */
@@ -117,23 +98,42 @@ async function getSMS() {
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
-  return fixSMS(res.data);
+  const data = res.data;
+
+  // Move SMS/OTP to column 4 if missing
+  data.aaData = data.aaData.map(r => {
+    if ((!r[4] || r[4].trim() === "") && r[5]) {
+      r[4] = r[5];
+      r.splice(5, 1);
+    }
+    // Remove unwanted text
+    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
+    r[5] = r[5] || "";
+    r[6] = r[6] || "$";
+    r[7] = r[7] || 0;
+    return r.slice(0, 8);
+  });
+
+  return data;
 }
 
-/* ================= AUTO REFRESH LOGIN ================= */
-setInterval(login, 10 * 60 * 1000);
+/* ================= AUTO REFRESH ================= */
+setInterval(login, 10 * 60 * 1000); // every 10 minutes
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
   const type = req.query.type;
+  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
     if (!cookie) await login();
 
-    if (type === "numbers") return res.json(await getNumbers());
-    if (type === "sms") return res.json(await getSMS());
+    let result;
+    if (type === "numbers") result = await getNumbers();
+    else if (type === "sms") result = await getSMS();
+    else return res.json({ error: "Invalid type" });
 
-    res.json({ error: "Use ?type=numbers OR ?type=sms" });
+    res.json(result);
   } catch (e) {
     cookie = "";
     res.json({ error: "Session expired — retrying next request" });
