@@ -24,10 +24,8 @@ async function login() {
   cookie = "";
 
   const page = await client.get("/Login");
-
-  if (page.headers["set-cookie"]) {
-    cookie = page.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
-  }
+  const set = page.headers["set-cookie"];
+  if (set) cookie = set.map(c => c.split(";")[0]).join("; ");
 
   const match = page.data.match(/What is (\d+) \+ (\d+)/i);
   const capt = match ? Number(match[1]) + Number(match[2]) : 6;
@@ -50,7 +48,7 @@ async function login() {
 
 /* ================= CLEAN HTML ================= */
 function clean(text = "") {
-  return text.replace(/<[^>]+>/g, "").replace("Weekly", "").trim();
+  return text.replace(/<[^>]+>/g, "").trim();
 }
 
 /* ================= FETCH NUMBERS ================= */
@@ -66,26 +64,29 @@ async function getNumbers() {
 
   const data = res.data;
 
-  if (!data.aaData) return data;
-
+  // Roxy-style clean numbers
   data.aaData = data.aaData.map(r => [
-    r[0] || "",              // Name
-    "",                      // Blank column
-    r[2] || "",              // Number
-    "Weekly",                // Plan
-    clean(r[4] || ""),       // Price only
-    clean(r[5] || r[7] || "")// Stats
+    clean(r[0]),    // Service Name
+    "",             // Blank column
+    clean(r[2]),    // Number
+    "Weekly",       // Type
+    clean(r[4] || ""), // Extra info (if any)
+    clean(r[5] || "")  // Price / other
   ]);
 
   return data;
 }
 
-/* ================= FETCH SMS ================= */
+/* ================= FETCH SMS / OTP ================= */
 async function getSMS() {
   if (!cookie) await login();
 
+  const today = new Date();
+  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
+  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
+
   const res = await client.get(
-    "/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=5000",
+    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=2000`,
     {
       headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" }
     }
@@ -93,29 +94,29 @@ async function getSMS() {
 
   const data = res.data;
 
-  if (!data.aaData) return data;
-
+  // Roxy-style clean SMS messages
   data.aaData = data.aaData.map(r => {
-    let msg = r[4] || r[5] || "";
+    // Ensure OTP message is column 4
+    if ((!r[4] || r[4].trim() === "") && r[5]) {
+      r[4] = r[5];
+    }
 
-    msg = msg.replace(/legendhacker/gi, "").trim();
+    // Remove unwanted legendhacker text
+    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
 
-    return [
-      r[0],
-      r[1],
-      r[2],
-      r[3],
-      msg,
-      "$",
-      r[7] || r[6] || 0
-    ];
+    // Optional: remove extra columns / fill blanks
+    r[5] = r[5] || "";
+    r[6] = r[6] || "$";
+    r[7] = r[7] || 0;
+
+    return r.slice(0, 8); // max 8 columns
   });
 
   return data;
 }
 
-/* ================= AUTO LOGIN ================= */
-setInterval(() => login(), 10 * 60 * 1000);
+/* ================= AUTO REFRESH ================= */
+setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
@@ -128,7 +129,6 @@ router.get("/", async (req, res) => {
     if (type === "sms") return res.json(await getSMS());
 
     res.json({ error: "Use ?type=numbers OR ?type=sms" });
-
   } catch (e) {
     cookie = "";
     res.json({ error: "Session expired — retrying next request" });
