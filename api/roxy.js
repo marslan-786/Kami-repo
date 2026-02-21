@@ -1,10 +1,9 @@
 const express = require("express");
 const axios = require("axios");
-
 const router = express.Router();
 
 /* ================= CONFIG ================= */
-const BASE = "http://167.114.209.78/roxy";
+const BASE = "http://167.114.209.78/roxy"; // Roxy API
 const USER = "Kamibroken";
 const PASS = "Kamran5.";
 
@@ -57,27 +56,25 @@ async function getNumbers() {
 
   const res = await client.get(
     "/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1",
-    {
-      headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" }
-    }
+    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
-  // Roxy-style clean numbers
+  // Roxy-style numbers
   data.aaData = data.aaData.map(r => [
-    clean(r[0]),    // Service Name
-    "",             // Blank column
-    clean(r[2]),    // Number
-    "Weekly",       // Type
-    clean(r[4] || ""), // Extra info (if any)
-    clean(r[5] || "")  // Price / other
+    r[0] && r[0].trim() ? r[0] : "Unknown Provider",
+    "",
+    r[2] || "",
+    "Weekly",
+    r[4] && r[4].trim() ? r[4] : "Weekly$ 0.01",
+    r[5] && r[5].trim() ? r[5] : "SD : 0 | SW : 0"
   ]);
 
   return data;
 }
 
-/* ================= FETCH SMS / OTP ================= */
+/* ================= FETCH SMS ================= */
 async function getSMS() {
   if (!cookie) await login();
 
@@ -86,49 +83,50 @@ async function getSMS() {
   const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
 
   const res = await client.get(
-    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=2000`,
-    {
-      headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" }
-    }
+    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=5000`,
+    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
-  // Roxy-style clean SMS messages
+  // Fix SMS / OTP
   data.aaData = data.aaData.map(r => {
-    // Ensure OTP message is column 4
+    // Move OTP / message to column 4
     if ((!r[4] || r[4].trim() === "") && r[5]) {
       r[4] = r[5];
     }
 
-    // Remove unwanted legendhacker text
+    // Remove "legendhacker" or unwanted text
     r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
 
-    // Optional: remove extra columns / fill blanks
+    // Fill missing default columns
     r[5] = r[5] || "";
     r[6] = r[6] || "$";
     r[7] = r[7] || 0;
 
-    return r.slice(0, 8); // max 8 columns
+    return r.slice(0, 8); // Keep only first 8 columns
   });
 
   return data;
 }
 
-/* ================= AUTO REFRESH ================= */
+/* ================= AUTO REFRESH LOGIN ================= */
 setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
   const type = req.query.type;
+  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
     if (!cookie) await login();
 
-    if (type === "numbers") return res.json(await getNumbers());
-    if (type === "sms") return res.json(await getSMS());
+    let result;
+    if (type === "numbers") result = await getNumbers();
+    else if (type === "sms") result = await getSMS();
+    else return res.json({ error: "Invalid type" });
 
-    res.json({ error: "Use ?type=numbers OR ?type=sms" });
+    res.json(result);
   } catch (e) {
     cookie = "";
     res.json({ error: "Session expired — retrying next request" });
