@@ -101,12 +101,19 @@ async function getSMS() {
 
   if (!data.aaData) return data;
 
-  // Fix null/empty message fields
+  // Fix null/empty message fields and move OTP below "WhatsApp" or other service
   data.aaData = data.aaData.map(r => {
-    if (!r[4] && r[5]) {
-      r[4] = r[5];
-      r.splice(5, 1);
+    // If r[4] is empty but r[5] has the message
+    if ((!r[4] || r[4].trim() === "") && r[5]) {
+      r[4] = r[5];       // Move message to correct column
+      r.splice(5, 1);    // Remove duplicate column
     }
+
+    // Remove any remaining empty strings in the first 6 columns
+    for (let i = 0; i <= 6; i++) {
+      if (!r[i]) r[i] = "";
+    }
+
     return r;
   });
 
