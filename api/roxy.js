@@ -64,15 +64,20 @@ async function getNumbers() {
 
   const data = res.data;
 
-  // Fix numbers structure
-  data.aaData = data.aaData.map(r => [
-    r[1],
-    "",
-    r[3],
-    "Weekly",
-    clean(r[4] || ""),
-    clean(r[7] || "")
-  ]);
+  // 🔥 AUTO DETECT NUMBER + PRICE
+  data.aaData = data.aaData.map(r => {
+    const number = r.find(v => /^\d{6,15}$/.test(v)) || "";
+    const price = clean(r.find(v => v.includes("$")) || "");
+
+    return [
+      r[0] || "",   // Name
+      "",
+      number,       // FIXED NUMBER
+      "Weekly",
+      price,
+      ""
+    ];
+  });
 
   return data;
 }
@@ -82,7 +87,7 @@ async function getSMS() {
   if (!cookie) await login();
 
   const res = await client.get(
-    "/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000",
+    "/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=5000",
     {
       headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" }
     }
@@ -90,22 +95,33 @@ async function getSMS() {
 
   const data = res.data;
 
-  // Fix nulls in SMS messages
   data.aaData = data.aaData.map(r => {
-    if (r[4] === null && r[5]) {
+    // 🔥 OTP always move to index 4
+    if ((!r[4] || r[4] === "" || r[4] === "legendhacker") && r[5]) {
       r[4] = r[5];
-      r.splice(5, 1);
     }
-    return r;
+
+    // remove junk
+    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
+
+    return [
+      r[0],
+      r[1],
+      r[2],
+      r[3],
+      r[4],   // ✅ OTP HERE
+      "$",
+      r[7] || 0
+    ];
   });
 
   return data;
 }
 
-/* ================= AUTO REFRESH ================= */
-setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
+/* ================= AUTO LOGIN ================= */
+setInterval(() => login(), 10 * 60 * 1000);
 
-/* ================= API ROUTE ================= */
+/* ================= API ================= */
 router.get("/", async (req, res) => {
   const type = req.query.type;
 
@@ -118,7 +134,7 @@ router.get("/", async (req, res) => {
     res.json({ error: "Use ?type=numbers OR ?type=sms" });
   } catch (e) {
     cookie = "";
-    res.json({ error: "Session expired — retrying next request" });
+    res.json({ error: "Session expired" });
   }
 });
 
