@@ -17,6 +17,17 @@ const CONFIG = {
 
 let cookies = [];
 
+/* ================= SAFE JSON ================= */
+
+function safeJSON(text) {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    console.log("JSON ERROR:", text);
+    return { error: "Invalid JSON from server" };
+  }
+}
+
 /* ================= REQUEST HELPER ================= */
 
 function request(method, url, data = null, extraHeaders = {}) {
@@ -25,9 +36,9 @@ function request(method, url, data = null, extraHeaders = {}) {
 
     const headers = {
       "User-Agent": CONFIG.userAgent,
-      "Accept": "*/*",
+      Accept: "*/*",
       "Accept-Encoding": "gzip, deflate",
-      "Cookie": cookies.join("; "),
+      Cookie: cookies.join("; "),
       ...extraHeaders
     };
 
@@ -44,12 +55,16 @@ function request(method, url, data = null, extraHeaders = {}) {
       }
 
       let chunks = [];
+
       res.on("data", d => chunks.push(d));
+
       res.on("end", () => {
         let buffer = Buffer.concat(chunks);
 
-        if (res.headers["content-encoding"] === "gzip")
-          buffer = zlib.gunzipSync(buffer);
+        try {
+          if (res.headers["content-encoding"] === "gzip")
+            buffer = zlib.gunzipSync(buffer);
+        } catch {}
 
         resolve(buffer.toString());
       });
@@ -68,9 +83,8 @@ async function login() {
 
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
 
-  // FIXED CAPTCHA REGEX
   const match = page.match(/What is (\d+) \+ (\d+)/i);
-  let ans = match ? Number(match[1]) + Number(match[2]) : 10;
+  const ans = match ? Number(match[1]) + Number(match[2]) : 10;
 
   const form = querystring.stringify({
     username: CONFIG.username,
@@ -84,8 +98,22 @@ async function login() {
     form,
     { Referer: `${CONFIG.baseUrl}/login` }
   );
+}
 
-  console.log("✅ Logged in");
+/* ================= FIX NULL SMS ================= */
+
+function fixSMS(data) {
+  if (!data.aaData) return data;
+
+  data.aaData = data.aaData.map(row => {
+    if (row[4] === null && row[5]) {
+      row[4] = row[5];
+      row.splice(5, 1); // remove extra column
+    }
+    return row;
+  });
+
+  return data;
 }
 
 /* ================= FETCH NUMBERS ================= */
@@ -100,7 +128,7 @@ async function getNumbers() {
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  return JSON.parse(data); // SAME STYLE RETURN
+  return safeJSON(data);
 }
 
 /* ================= FETCH SMS ================= */
@@ -116,14 +144,7 @@ async function getSMS() {
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  let json = safeJSON(data);
-
-  /* 🔥 REMOVE NULL COLUMN ONLY */
-  if (json.aaData) {
-    json.aaData = json.aaData.map(row => row.filter(v => v !== null));
-  }
-
-  return json;
+  return fixSMS(safeJSON(data));
 }
 
 /* ================= API ================= */
@@ -143,8 +164,7 @@ app.get("/api", async (req, res) => {
     else if (type === "sms") result = await getSMS();
     else return res.json({ error: "Invalid type" });
 
-    res.json(result); // NO CHANGE STYLE
-
+    res.json(result);
   } catch (err) {
     res.json({ error: err.message });
   }
