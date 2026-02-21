@@ -14,9 +14,9 @@ let cookie = "";
 const client = axios.create({
   baseURL: BASE,
   headers: {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile"
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
   },
-  validateStatus: () => true
+  validateStatus: () => true,
 });
 
 /* ================= LOGIN ================= */
@@ -36,8 +36,8 @@ async function login() {
     {
       headers: {
         Cookie: cookie,
-        "Content-Type": "application/x-www-form-urlencoded"
-      }
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
     }
   );
 
@@ -57,21 +57,19 @@ async function getNumbers() {
 
   const res = await client.get(
     "/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1",
-    {
-      headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" }
-    }
+    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
-  // Fix numbers structure
+  // ✅ Correct columns mapping
   data.aaData = data.aaData.map(r => [
-    r[1],
-    "",
-    r[3],
-    "Weekly",
-    clean(r[4] || ""),
-    clean(r[7] || "")
+    clean(r[1]),   // Range name
+    "",            // Blank
+    clean(r[2]),   // NUMBER
+    clean(r[4]),   // Weekly
+    clean(r[5]),   // Price
+    clean(r[6])    // Stats
   ]);
 
   return data;
@@ -83,14 +81,12 @@ async function getSMS() {
 
   const res = await client.get(
     "/agent/res/data_smscdr.php?fdate1=2026-02-21%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000",
-    {
-      headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" }
-    }
+    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
-  // Fix nulls in SMS messages
+  // ✅ SMS clean
   data.aaData = data.aaData.map(r => {
     if (r[4] === null && r[5]) {
       r[4] = r[5];
@@ -102,8 +98,8 @@ async function getSMS() {
   return data;
 }
 
-/* ================= AUTO REFRESH ================= */
-setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
+/* ================= AUTO REFRESH LOGIN ================= */
+setInterval(login, 10 * 60 * 1000); // every 10 min
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
