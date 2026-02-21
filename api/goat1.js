@@ -1,41 +1,28 @@
+// api/goat.js
 const express = require("express");
-const router = express.Router();
 const http = require("http");
 const https = require("https");
 const zlib = require("zlib");
 const querystring = require("querystring");
 
-/* ================= CONFIG ================= */
+const router = express.Router();
 
 const CONFIG = {
   baseUrl: "http://167.114.117.67/ints",
-  username: "teamlegend097",
+  username: "teamlegend097",  // Update your credentials
   password: "teamlegend097",
-  userAgent:
-    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile"
+  userAgent: "Mozilla/5.0 (Linux; Android 13; V2040) AppleWebKit/537.36 Chrome/144 Mobile Safari/537.36"
 };
 
 let cookies = [];
 
-/* ================= HELPERS ================= */
-
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
-}
-
+// Safe JSON parse
 function safeJSON(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { error: "Invalid JSON from server" };
-  }
+  try { return JSON.parse(text); }
+  catch { return { error: "Invalid JSON from server" }; }
 }
 
-/* ================= REQUEST ================= */
-
+// HTTP/HTTPS Request
 function request(method, url, data = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith("https") ? https : http;
@@ -55,22 +42,14 @@ function request(method, url, data = null, extraHeaders = {}) {
 
     const req = lib.request(url, { method, headers }, res => {
       if (res.headers["set-cookie"]) {
-        res.headers["set-cookie"].forEach(c => {
-          cookies.push(c.split(";")[0]);
-        });
+        res.headers["set-cookie"].forEach(c => cookies.push(c.split(";")[0]));
       }
 
       let chunks = [];
       res.on("data", d => chunks.push(d));
-
       res.on("end", () => {
         let buffer = Buffer.concat(chunks);
-
-        try {
-          if (res.headers["content-encoding"] === "gzip")
-            buffer = zlib.gunzipSync(buffer);
-        } catch {}
-
+        try { if(res.headers["content-encoding"]==="gzip") buffer = zlib.gunzipSync(buffer); } catch {}
         resolve(buffer.toString());
       });
     });
@@ -81,15 +60,12 @@ function request(method, url, data = null, extraHeaders = {}) {
   });
 }
 
-/* ================= LOGIN ================= */
-
+// LOGIN
 async function login() {
   cookies = [];
-
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
-
   const match = page.match(/What is (\d+) \+ (\d+)/i);
-  const ans = match ? Number(match[1]) + Number(match[2]) : 10;
+  const ans = match ? Number(match[1])+Number(match[2]) : 10;
 
   const form = querystring.stringify({
     username: CONFIG.username,
@@ -97,77 +73,54 @@ async function login() {
     capt: ans
   });
 
-  await request(
-    "POST",
-    `${CONFIG.baseUrl}/signin`,
-    form,
-    { Referer: `${CONFIG.baseUrl}/login` }
-  );
+  await request("POST", `${CONFIG.baseUrl}/signin`, form, { Referer: `${CONFIG.baseUrl}/login` });
 }
 
-/* ================= FIX NUMBERS ================= */
+// CLEAN NUMBERS
+async function getNumbers() {
+  const url = `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+  const data = await request("GET", url, null, {
+    Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
+    "X-Requested-With": "XMLHttpRequest"
+  });
 
-function fixNumbers(data) {
-  if (!data.aaData) return data;
+  const parsed = safeJSON(data);
+  if (!parsed.aaData) return parsed;
 
-  data.aaData = data.aaData.map(row => [
-    row[1], // name
-    "", // blank
-    row[2], // number
+  parsed.aaData = parsed.aaData.map(row => [
+    row[1],  // name
+    "",      // blank column
+    row[3],  // number
     "Weekly",
     (row[4] || "").replace(/<[^>]+>/g, "").trim(),
     (row[7] || "").replace(/<[^>]+>/g, "").trim()
   ]);
 
-  return data;
+  return parsed;
 }
 
-/* ================= FIX SMS ================= */
-
+// CLEAN SMS
 function fixSMS(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => {
-    // REMOVE USERNAME (legendhacker)
-    row[4] = "";
-
-    // remove HTML
-    row[5] = (row[5] || "").replace(/<[^>]+>/g, "").trim();
-
+    if (row[4] === null && row[5]) {
+      row[4] = row[5];
+      row.splice(5, 1);
+    }
     return row;
   });
 
   return data;
 }
 
-/* ================= FETCH NUMBERS ================= */
-
-async function getNumbers() {
-  const ts = Date.now();
-
-  const url =
-    `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?` +
-    `frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1&_=${ts}`;
-
-  const data = await request("GET", url, null, {
-    Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
-    "X-Requested-With": "XMLHttpRequest"
-  });
-
-  return fixNumbers(safeJSON(data));
-}
-
-/* ================= FETCH SMS ================= */
-
 async function getSMS() {
-  const d = today();
-  const ts = Date.now();
+  const today = new Date();
+  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')} 00:00:00`;
+  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')} 23:59:59`;
 
-  const url =
-    `${CONFIG.baseUrl}/agent/res/data_smscdr.php?` +
-    `fdate1=${d}%2000:00:00&fdate2=${d}%2023:59:59&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0` +
-    `&sEcho=1&iDisplayStart=0&iDisplayLength=5000&iSortCol_0=0&sSortDir_0=desc&_=${ts}`;
-
+  const url = `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&iColumns=9&iDisplayStart=0&iDisplayLength=5000&iSortCol_0=0&sSortDir_0=desc&iSortingCols=1&_=${Date.now()}`;
+  
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
     "X-Requested-With": "XMLHttpRequest"
@@ -176,24 +129,22 @@ async function getSMS() {
   return fixSMS(safeJSON(data));
 }
 
-/* ================= API ROUTE ================= */
-
-router.get("/", async (req, res) => {
+// API ROUTE
+router.get("/", async (req,res)=>{
   const type = req.query.type;
-
-  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
+  if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
 
   try {
     await login();
 
     let result;
-
-    if (type === "numbers") result = await getNumbers();
-    else if (type === "sms") result = await getSMS();
-    else return res.json({ error: "Invalid type" });
+    if(type==="numbers") result = await getNumbers();
+    else if(type==="sms") result = await getSMS();
+    else return res.json({ error:"Invalid type" });
 
     res.json(result);
-  } catch (err) {
+
+  } catch(err) {
     res.json({ error: err.message });
   }
 });
