@@ -17,7 +17,7 @@ const CONFIG = {
 
 let cookies = [];
 
-/* ================= SAFE JSON ================= */
+// Safe JSON parse
 function safeJSON(text) {
   try {
     return JSON.parse(text);
@@ -26,7 +26,7 @@ function safeJSON(text) {
   }
 }
 
-/* ================= HTTP REQUEST ================= */
+/* ================= REQUEST ================= */
 function request(method, url, data = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith("https") ? https : http;
@@ -83,12 +83,9 @@ async function login() {
     capt: ans
   });
 
-  await request(
-    "POST",
-    `${CONFIG.baseUrl}/signin`,
-    form,
-    { Referer: `${CONFIG.baseUrl}/login` }
-  );
+  await request("POST", `${CONFIG.baseUrl}/signin`, form, {
+    Referer: `${CONFIG.baseUrl}/login`
+  });
 }
 
 /* ================= FIX NUMBERS ================= */
@@ -96,14 +93,14 @@ function fixNumbers(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => [
-    row[1],  // Name
-    "",      // Blank column
-    row[3],  // Number
-    "Weekly",
-    (row[4] || "").replace(/<[^>]+>/g, "").trim(),
-    "$",
-    (row[6] || 0),
-    (row[7] || 0)
+    row[1],      // Name
+    "",          // Blank column
+    row[3],      // Number
+    "Weekly",    // Type
+    (row[4] || "").replace(/<[^>]+>/g, "").trim(), // Info
+    "$",         // Currency
+    row[6] || 0, // Some numeric value
+    row[7] || 0  // Some numeric value
   ]);
 
   return data;
@@ -114,21 +111,21 @@ function fixSMS(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => {
-    // Agar 5th column empty ho aur 6th column me text ho, to copy kar do
+    // Agar 5th column empty ho aur 6th column me message ho, shift kar do
     if ((!row[4] || row[4].trim() === "") && row[5]) {
-      row[4] = row[5];
+      row[4] = row[5]; // OTP/message ko 5th column me le aaye
+      row[5] = "";     // 6th column blank
     }
 
     // Remove unwanted text
     row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
 
     // Fill default columns
-    row[5] = row[5] || "$";
-    row[6] = row[6] || 0;
+    row[5] = row[5] || ""; // blank
+    row[6] = row[6] || "$";
     row[7] = row[7] || 0;
 
-    // Keep only first 8 columns
-    return row.slice(0, 8);
+    return row.slice(0, 8); // sirf first 8 columns
   });
 
   return data;
@@ -136,7 +133,7 @@ function fixSMS(data) {
 
 /* ================= FETCH NUMBERS ================= */
 async function getNumbers() {
-  const url = `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+  const url = `${CONFIG.baseUrl}/agent/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
     "X-Requested-With": "XMLHttpRequest"
@@ -176,8 +173,5 @@ app.get("/", async (req, res) => {
     res.json({ error: err.message });
   }
 });
-
-/* ================= AUTO REFRESH LOGIN ================= */
-setInterval(() => login(), 10 * 60 * 1000); // har 10 min login refresh
 
 module.exports = app;
