@@ -1,22 +1,22 @@
-// api/goat.js
 const express = require("express");
 const http = require("http");
 const https = require("https");
 const zlib = require("zlib");
 const querystring = require("querystring");
 
-const app = express.Router();
+const router = express.Router();
 
+// CONFIG
 const CONFIG = {
   baseUrl: "http://167.114.117.67/ints",
   username: "teamlegend097",
   password: "teamlegend097",
-  userAgent:
-    "Mozilla/5.0 (Linux; Android 13; V2040 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.7559.132 Mobile Safari/537.36"
+  userAgent: "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 };
 
 let cookies = [];
 
+// ================= HELPERS =================
 function safeJSON(text) {
   try {
     return JSON.parse(text);
@@ -25,11 +25,9 @@ function safeJSON(text) {
   }
 }
 
-/* ================= REQUEST ================= */
 function request(method, url, data = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith("https") ? https : http;
-
     const headers = {
       "User-Agent": CONFIG.userAgent,
       Accept: "*/*",
@@ -45,9 +43,7 @@ function request(method, url, data = null, extraHeaders = {}) {
 
     const req = lib.request(url, { method, headers }, res => {
       if (res.headers["set-cookie"]) {
-        res.headers["set-cookie"].forEach(c => {
-          cookies.push(c.split(";")[0]);
-        });
+        res.headers["set-cookie"].forEach(c => cookies.push(c.split(";")[0]));
       }
 
       let chunks = [];
@@ -55,8 +51,7 @@ function request(method, url, data = null, extraHeaders = {}) {
       res.on("end", () => {
         let buffer = Buffer.concat(chunks);
         try {
-          if (res.headers["content-encoding"] === "gzip")
-            buffer = zlib.gunzipSync(buffer);
+          if (res.headers["content-encoding"] === "gzip") buffer = zlib.gunzipSync(buffer);
         } catch {}
         resolve(buffer.toString());
       });
@@ -68,12 +63,11 @@ function request(method, url, data = null, extraHeaders = {}) {
   });
 }
 
-/* ================= LOGIN ================= */
+// ================= LOGIN =================
 async function login() {
   cookies = [];
 
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
-
   const match = page.match(/What is (\d+) \+ (\d+)/i);
   const ans = match ? Number(match[1]) + Number(match[2]) : 10;
 
@@ -83,89 +77,62 @@ async function login() {
     capt: ans
   });
 
-  await request(
-    "POST",
-    `${CONFIG.baseUrl}/signin`,
-    form,
-    { Referer: `${CONFIG.baseUrl}/login` }
-  );
+  await request(`${CONFIG.baseUrl}/signin`, form, { method: "POST", headers: { Referer: `${CONFIG.baseUrl}/login` } });
 }
 
-/* ================= FIX NUMBERS ================= */
-function fixNumbers(data) {
-  if (!data.aaData) return data;
-
-  data.aaData = data.aaData.map(row => {
-    return [
-      row[1],  // Name
-      "",      // Blank column
-      row[3],  // Number
-      "Weekly",
-      (row[4] || "").replace(/<[^>]+>/g, "").trim(),
-      "$",
-      (row[6] || 0),
-      (row[7] || 0)
-    ];
-  });
-
-  return data;
-}
-
-/* ================= FIX SMS ================= */
+// ================= FIX SMS =================
 function fixSMS(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => {
-    // SMS Text always in 5th column
-    if ((!row[4] || row[4].trim() === "") && row[5]) {
-      row[4] = row[5];
-    }
+    if (!row[0] || !row[0].includes("-")) return row;
 
-    // Remove unwanted text (like legendhacker)
-    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
+    const date = row[0];
+    const country = row[1];
+    const number = row[2];
+    const service = row[3];
+    const message = (row[4] && row[4].trim()) ? row[4] : (row[5] || "");
+    const cleanMessage = message.replace(/legendhacker/gi, "").trim();
+    const priceSymbol = "$";
+    const price = row[6] || row[7] || 0;
 
-    // Fill missing default columns
-    row[5] = row[5] || "$";
-    row[6] = row[6] || 0;
-    row[7] = row[7] || 0;
-
-    // Keep only first 8 columns
-    row = row.slice(0, 8);
-
-    return row;
+    return [date, country, number, service, cleanMessage, priceSymbol, price];
   });
 
   return data;
 }
 
-/* ================= FETCH NUMBERS ================= */
+// ================= GET NUMBERS =================
 async function getNumbers() {
-  const url = `${CONFIG.baseUrl}/agent/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+  const url = `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
     "X-Requested-With": "XMLHttpRequest"
   });
-  return fixNumbers(safeJSON(data));
+  return safeJSON(data); // Numbers usually clean
 }
 
-/* ================= FETCH SMS ================= */
-async function getSMS() {
-  const today = new Date();
-  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
-  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
+// ================= GET SMS =================
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 
-  const url = `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&iDisplayStart=0&iDisplayLength=5000`;
+async function getSMS() {
+  const url = `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=${today()}%2000:00:00&fdate2=${today()}%2023:59:59&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&iDisplayStart=0&iDisplayLength=5000`;
+
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
     "X-Requested-With": "XMLHttpRequest"
   });
+
   return fixSMS(safeJSON(data));
 }
 
-/* ================= API ROUTE ================= */
-app.get("/", async (req, res) => {
-  const { type } = req.query;
-  if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
+// ================= API ROUTE =================
+router.get("/", async (req, res) => {
+  const type = req.query.type;
+  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
     await login();
@@ -181,4 +148,4 @@ app.get("/", async (req, res) => {
   }
 });
 
-module.exports = app;
+module.exports = router;
