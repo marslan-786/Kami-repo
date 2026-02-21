@@ -17,6 +17,7 @@ const CONFIG = {
 
 let cookies = [];
 
+// Safe JSON parse
 function safeJSON(text) {
   try {
     return JSON.parse(text);
@@ -71,9 +72,7 @@ function request(method, url, data = null, extraHeaders = {}) {
 /* ================= LOGIN ================= */
 async function login() {
   cookies = [];
-
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
-
   const match = page.match(/What is (\d+) \+ (\d+)/i);
   const ans = match ? Number(match[1]) + Number(match[2]) : 10;
 
@@ -96,12 +95,12 @@ function fixNumbers(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => [
-    row[1],        // Name
-    "",            // Blank
-    row[3],        // Number
-    "Weekly",      // Type
-    (row[4] || "").replace(/<[^>]+>/g, "").trim(), // Message
-    "$",           // Currency
+    row[1],  // Name
+    "",      // Blank column
+    row[3],  // Number
+    "Weekly",
+    (row[4] || "").replace(/<[^>]+>/g, "").trim(),
+    "$",
     (row[6] || 0),
     (row[7] || 0)
   ]);
@@ -113,19 +112,23 @@ function fixNumbers(data) {
 function fixSMS(data) {
   if (!data.aaData) return data;
 
-  data.aaData = data.aaData.map(row => {
-    // Hamesha 5th column me message rakho
-    if ((!row[4] || row[4].trim() === "") && row[5]) {
-      row[4] = row[5];
-      row[5] = "";
+  data.aaData = data.aaData.map((row, index) => {
+    if (index === 0) {
+      // Ensure message is in 5th column
+      if (!row[4] || row[4].trim() === "") {
+        row[4] = row[5] || "";
+      }
+      row[4] = row[4].trim();
+      row[5] = row[5] || "$";
+      row[6] = row[6] || 0;
+      row[7] = row[7] || 0;
+      row = row.slice(0, 8);
     }
-
-    row[4] = row[4] || ""; // message column
-    row[5] = row[5] || ""; // blank
-    row[6] = row[6] || "$";
-    row[7] = row[7] || 0;
-
-    return row.slice(0, 8);
+    if (index === 1) {
+      // Second summary row
+      row = ["legendhacker", "$", 0];
+    }
+    return row;
   });
 
   return data;
@@ -162,7 +165,6 @@ router.get("/", async (req, res) => {
 
   try {
     await login();
-
     let result;
     if (type === "numbers") result = await getNumbers();
     else if (type === "sms") result = await getSMS();
