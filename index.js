@@ -116,7 +116,14 @@ async function getSMS() {
     "X-Requested-With": "XMLHttpRequest"
   });
 
-  return JSON.parse(data); // SAME STYLE RETURN
+  let json = safeJSON(data);
+
+  /* 🔥 REMOVE NULL COLUMN ONLY */
+  if (json.aaData) {
+    json.aaData = json.aaData.map(row => row.filter(v => v !== null));
+  }
+
+  return json;
 }
 
 /* ================= API ================= */
