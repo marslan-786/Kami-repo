@@ -73,12 +73,12 @@ async function getNumbers() {
   const data = res.data;
 
   data.aaData = data.aaData.map(r => [
-    clean(r[1]),   // Range Name
-    "",
-    clean(r[3]),   // Number
+    clean(r[1]),      // Range Name
+    "",               // blank column
+    clean(r[3]),      // ✅ NUMBER (MAIN FIX)
     "Weekly",
-    clean(r[4]),   // Price
-    clean(r[5]),   // Stats
+    clean(r[4]),      // Price
+    clean(r[6]),      // Stats
   ]);
 
   return data;
