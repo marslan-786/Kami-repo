@@ -66,7 +66,7 @@ async function getNumbers() {
   data.aaData = data.aaData.map(r => [
     clean(r[1]),   // Range name
     "",            // Blank
-    clean(r[3]),   // NUMBER
+    clean(r[2]),   // NUMBER
     clean(r[4]),   // Weekly
     clean(r[5]),   // Price
     clean(r[6])    // Stats
