@@ -5,7 +5,7 @@ const https = require("https");
 const zlib = require("zlib");
 const querystring = require("querystring");
 
-const app = express.Router();
+const router = express.Router();
 
 const CONFIG = {
   baseUrl: "http://167.114.117.67/ints",
@@ -17,6 +17,7 @@ const CONFIG = {
 
 let cookies = [];
 
+// ----------------- Safe JSON Parse -----------------
 function safeJSON(text) {
   try {
     return JSON.parse(text);
@@ -25,7 +26,7 @@ function safeJSON(text) {
   }
 }
 
-/* ================= REQUEST ================= */
+// ----------------- HTTP Request -----------------
 function request(method, url, data = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith("https") ? https : http;
@@ -55,8 +56,9 @@ function request(method, url, data = null, extraHeaders = {}) {
       res.on("end", () => {
         let buffer = Buffer.concat(chunks);
         try {
-          if (res.headers["content-encoding"] === "gzip")
+          if (res.headers["content-encoding"] === "gzip") {
             buffer = zlib.gunzipSync(buffer);
+          }
         } catch {}
         resolve(buffer.toString());
       });
@@ -68,12 +70,11 @@ function request(method, url, data = null, extraHeaders = {}) {
   });
 }
 
-/* ================= LOGIN ================= */
+// ----------------- Login -----------------
 async function login() {
   cookies = [];
 
   const page = await request("GET", `${CONFIG.baseUrl}/login`);
-
   const match = page.match(/What is (\d+) \+ (\d+)/i);
   const ans = match ? Number(match[1]) + Number(match[2]) : 10;
 
@@ -91,64 +92,64 @@ async function login() {
   );
 }
 
-/* ================= FIX NUMBERS ================= */
+// ----------------- Fix Numbers -----------------
 function fixNumbers(data) {
   if (!data.aaData) return data;
 
+  data.aaData = data.aaData.map(row => [
+    row[1],       // Name
+    "",           // Blank column
+    row[3],       // Number
+    "Weekly",     // Type
+    (row[4] || "").replace(/<[^>]+>/g, "").trim(), // Extra info
+    "$",
+    row[6] || 0,
+    row[7] || 0
+  ]);
+
+  return data;
+}
+
+// ----------------- Fix SMS (OTP) -----------------
+function fixSMS(data) {
+  if (!data.aaData) return data;
+
   data.aaData = data.aaData.map(row => {
+    // SMS always at index 4
+    if ((!row[4] || row[4].trim() === "") && row[5]) {
+      row[4] = row[5];
+    }
+
+    // Remove unwanted text
+    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
+
     return [
-      row[1],  // Name
-      "",      // Blank column
-      row[3],  // Number
-      "Weekly",
-      (row[4] || "").replace(/<[^>]+>/g, "").trim(),
-      "$",
-      (row[6] || 0),
-      (row[7] || 0)
+      row[0], // Date
+      row[1], // Route
+      row[2], // From
+      row[3], // To / Service
+      row[4], // OTP TEXT
+      "$",    // Currency
+      row[6] || 0,
+      row[7] || 0
     ];
   });
 
   return data;
 }
 
-/* ================= FIX SMS ================= */
-function fixSMS(data) {
-  if (!data.aaData) return data;
-
-  data.aaData = data.aaData.map(row => {
-    // SMS Text always in 5th column
-    if ((!row[4] || row[4].trim() === "") && row[5]) {
-      row[4] = row[5];
-    }
-
-    // Remove unwanted text (like legendhacker)
-    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
-
-    // Fill missing default columns
-    row[5] = row[5] || "$";
-    row[6] = row[6] || 0;
-    row[7] = row[7] || 0;
-
-    // Keep only first 8 columns
-    row = row.slice(0, 8);
-
-    return row;
-  });
-
-  return data;
-}
-
-/* ================= FETCH NUMBERS ================= */
+// ----------------- Fetch Numbers -----------------
 async function getNumbers() {
-  const url = `${CONFIG.baseUrl}/agent/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+  const url = `${CONFIG.baseUrl}/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
   const data = await request("GET", url, null, {
     Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
     "X-Requested-With": "XMLHttpRequest"
   });
+
   return fixNumbers(safeJSON(data));
 }
 
-/* ================= FETCH SMS ================= */
+// ----------------- Fetch SMS -----------------
 async function getSMS() {
   const today = new Date();
   const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
@@ -159,11 +160,15 @@ async function getSMS() {
     Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
     "X-Requested-With": "XMLHttpRequest"
   });
+
   return fixSMS(safeJSON(data));
 }
 
-/* ================= API ROUTE ================= */
-app.get("/", async (req, res) => {
+// ----------------- Auto Refresh Login -----------------
+setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
+
+// ----------------- API Route -----------------
+router.get("/", async (req, res) => {
   const { type } = req.query;
   if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
 
@@ -181,4 +186,4 @@ app.get("/", async (req, res) => {
   }
 });
 
-module.exports = app;
+module.exports = router;
