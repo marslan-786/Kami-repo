@@ -4,8 +4,7 @@ const https = require("https");
 const zlib = require("zlib");
 const querystring = require("querystring");
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+const router = express.Router();
 
 const CONFIG = {
   baseUrl: "http://145.239.130.45/ints",
@@ -162,11 +161,11 @@ async function getSMS() {
 
 /* ================= ROUTES ================= */
 
-app.get("/", (req, res) => {
-  res.send("MSI API RUNNING ✅");
+router.get("/", (req, res) => {
+  res.send("MSI PANEL API RUNNING ✅");
 });
 
-app.get("/api", async (req, res) => {
+router.get("/api", async (req, res) => {
   const type = req.query.type;
 
   if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
@@ -186,8 +185,4 @@ app.get("/api", async (req, res) => {
   }
 });
 
-/* ================= START ================= */
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 Server running on port", PORT);
-});
+module.exports = router;
