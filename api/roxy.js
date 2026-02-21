@@ -1,5 +1,7 @@
 const express = require("express");
 const axios = require("axios");
+const { parsePhoneNumberFromString } = require("libphonenumber-js");
+
 const router = express.Router();
 
 /* ================= CONFIG ================= */
@@ -13,7 +15,8 @@ let cookie = "";
 const client = axios.create({
   baseURL: BASE,
   headers: {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile"
+    "User-Agent":
+      "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile"
   },
   validateStatus: () => true
 });
@@ -41,7 +44,8 @@ async function login() {
   );
 
   if (res.headers["set-cookie"]) {
-    cookie += "; " + res.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
+    cookie +=
+      "; " + res.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
   }
 }
 
@@ -61,15 +65,25 @@ async function getNumbers() {
 
   const data = res.data;
 
-  // Clean numbers output
-  data.aaData = data.aaData.map(r => [
-    clean(r[0]) || "Unknown Provider", // Name / Provider
-    "",                                // Blank column
-    r[2] || "",                        // Number
-    "Weekly",                           // Type
-    clean(r[4]) || "Weekly$ 0.01",     // Price / Info
-    clean(r[5]) || "SD : 0 | SW : 0"   // Status / Stats
-  ]);
+  // Fix numbers structure and detect country
+  data.aaData = data.aaData.map(r => {
+    const number = r[2] || "";
+    let country = "Unknown";
+
+    try {
+      const phone = parsePhoneNumberFromString(number);
+      if (phone) country = phone.country || "Unknown"; // e.g., 'EG', 'MY'
+    } catch {}
+
+    return [
+      country,           // 1st column = country code
+      "",
+      number,            // 2nd column = number
+      "Weekly",          // 3rd column = type
+      clean(r[4]) || "Weekly$ 0.01", // 4th column = price
+      clean(r[5]) || "SD : 0 | SW : 0" // 5th column = stats
+    ];
+  });
 
   return data;
 }
@@ -79,32 +93,39 @@ async function getSMS() {
   if (!cookie) await login();
 
   const today = new Date();
-  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
-  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
+  const fdate1 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(today.getDate()).padStart(2, "0")} 00:00:00`;
+  const fdate2 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(today.getDate()).padStart(2, "0")} 23:59:59`;
 
   const res = await client.get(
-    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=5000`,
+    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(
+      fdate1
+    )}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=5000`,
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
-  // Clean SMS / OTP output
+  // Fix SMS / OTP display
   data.aaData = data.aaData.map(r => {
-    // Move OTP / message to column 4
     if ((!r[4] || r[4].trim() === "") && r[5]) {
       r[4] = r[5];
     }
 
-    // Remove unwanted text (legendhacker)
+    // Remove unwanted text like legendhacker
     r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
 
-    // Ensure columns exist
+    // Fill missing columns
     r[5] = r[5] || "";
     r[6] = r[6] || "$";
     r[7] = r[7] || 0;
 
-    return r.slice(0, 8); // Keep first 8 columns only
+    return r.slice(0, 8); // Only first 8 columns
   });
 
   return data;
