@@ -1,143 +1,184 @@
+// api/goat.js
 const express = require("express");
-const axios = require("axios");
+const http = require("http");
+const https = require("https");
+const zlib = require("zlib");
+const querystring = require("querystring");
 
-const router = express.Router();
+const app = express.Router();
 
-/* ================= CONFIG ================= */
-const BASE = "http://167.114.117.67/ints"; // Goat panel base URL
-const USER = "teamlegend097";
-const PASS = "teamlegend097";
+const CONFIG = {
+  baseUrl: "http://167.114.117.67/ints",
+  username: "teamlegend097",
+  password: "teamlegend097",
+  userAgent:
+    "Mozilla/5.0 (Linux; Android 13; V2040 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.7559.132 Mobile Safari/537.36"
+};
 
-let cookie = "";
+let cookies = [];
 
-/* ================= AXIOS CLIENT ================= */
-const client = axios.create({
-  baseURL: BASE,
-  headers: {
-    "User-Agent":
-      "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile Safari/537.36"
-  },
-  validateStatus: () => true
-});
-
-/* ================= LOGIN ================= */
-async function login() {
-  cookie = "";
-
-  const page = await client.get("/login");
-  const set = page.headers["set-cookie"];
-  if (set) cookie = set.map(c => c.split(";")[0]).join("; ");
-
-  const match = page.data.match(/What is (\d+) \+ (\d+)/i);
-  const capt = match ? Number(match[1]) + Number(match[2]) : 0;
-
-  const res = await client.post(
-    "/signin",
-    `username=${USER}&password=${PASS}&capt=${capt}`,
-    {
-      headers: {
-        Cookie: cookie,
-        "Content-Type": "application/x-www-form-urlencoded",
-        Referer: `${BASE}/login`
-      }
-    }
-  );
-
-  if (res.headers["set-cookie"]) {
-    cookie += "; " + res.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
+function safeJSON(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: "Invalid JSON from server" };
   }
 }
 
-/* ================= CLEAN HTML ================= */
-function clean(text = "") {
-  return text.replace(/<[^>]+>/g, "").trim();
-}
+/* ================= REQUEST ================= */
+function request(method, url, data = null, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith("https") ? https : http;
 
-/* ================= FETCH NUMBERS ================= */
-async function getNumbers() {
-  if (!cookie) await login();
+    const headers = {
+      "User-Agent": CONFIG.userAgent,
+      Accept: "*/*",
+      "Accept-Encoding": "gzip, deflate",
+      Cookie: cookies.join("; "),
+      ...extraHeaders
+    };
 
-  const ts = Date.now();
-  const res = await client.get(
-    `/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1&_=${ts}`,
-    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
-  );
-
-  const data = res.data;
-
-  if (!data.aaData) return data;
-
-  // Fix numbers structure
-  data.aaData = data.aaData.map(r => [
-    r[1],
-    "",
-    r[3],
-    "Weekly",
-    clean(r[4] || ""),
-    clean(r[7] || "")
-  ]);
-
-  return data;
-}
-
-/* ================= FETCH SMS ================= */
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-async function getSMS() {
-  if (!cookie) await login();
-
-  const d = today();
-  const ts = Date.now();
-
-  const res = await client.get(
-    `/agent/res/data_smscdr.php?fdate1=${d}%2000:00:00&fdate2=${d}%2023:59:59&iDisplayLength=5000&_=${ts}`,
-    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
-  );
-
-  const data = res.data;
-
-  if (!data.aaData) return data;
-
-  // Fix null/empty message fields and move OTP below "WhatsApp" or other service
-  data.aaData = data.aaData.map(r => {
-    // If r[4] is empty but r[5] has the message
-    if ((!r[4] || r[4].trim() === "") && r[5]) {
-      r[4] = r[5];       // Move message to correct column
-      r.splice(5, 1);    // Remove duplicate column
+    if (method === "POST" && data) {
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+      headers["Content-Length"] = Buffer.byteLength(data);
     }
 
-    // Remove any remaining empty strings in the first 6 columns
-    for (let i = 0; i <= 6; i++) {
-      if (!r[i]) r[i] = "";
-    }
+    const req = lib.request(url, { method, headers }, res => {
+      if (res.headers["set-cookie"]) {
+        res.headers["set-cookie"].forEach(c => {
+          cookies.push(c.split(";")[0]);
+        });
+      }
 
-    return r;
+      let chunks = [];
+      res.on("data", d => chunks.push(d));
+      res.on("end", () => {
+        let buffer = Buffer.concat(chunks);
+        try {
+          if (res.headers["content-encoding"] === "gzip")
+            buffer = zlib.gunzipSync(buffer);
+        } catch {}
+        resolve(buffer.toString());
+      });
+    });
+
+    req.on("error", reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+/* ================= LOGIN ================= */
+async function login() {
+  cookies = [];
+
+  const page = await request("GET", `${CONFIG.baseUrl}/login`);
+
+  const match = page.match(/What is (\d+) \+ (\d+)/i);
+  const ans = match ? Number(match[1]) + Number(match[2]) : 10;
+
+  const form = querystring.stringify({
+    username: CONFIG.username,
+    password: CONFIG.password,
+    capt: ans
+  });
+
+  await request(
+    "POST",
+    `${CONFIG.baseUrl}/signin`,
+    form,
+    { Referer: `${CONFIG.baseUrl}/login` }
+  );
+}
+
+/* ================= FIX NUMBERS ================= */
+function fixNumbers(data) {
+  if (!data.aaData) return data;
+
+  data.aaData = data.aaData.map(row => {
+    return [
+      row[1],  // Name
+      "",      // Blank column
+      row[3],  // Number
+      "Weekly",
+      (row[4] || "").replace(/<[^>]+>/g, "").trim(),
+      "$",
+      (row[6] || 0),
+      (row[7] || 0)
+    ];
   });
 
   return data;
 }
 
-/* ================= AUTO REFRESH ================= */
-setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
+/* ================= FIX SMS ================= */
+function fixSMS(data) {
+  if (!data.aaData) return data;
+
+  data.aaData = data.aaData.map(row => {
+    // SMS Text always in 5th column
+    if ((!row[4] || row[4].trim() === "") && row[5]) {
+      row[4] = row[5];
+    }
+
+    // Remove unwanted text (like legendhacker)
+    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
+
+    // Fill missing default columns
+    row[5] = row[5] || "$";
+    row[6] = row[6] || 0;
+    row[7] = row[7] || 0;
+
+    // Keep only first 8 columns
+    row = row.slice(0, 8);
+
+    return row;
+  });
+
+  return data;
+}
+
+/* ================= FETCH NUMBERS ================= */
+async function getNumbers() {
+  const url = `${CONFIG.baseUrl}/agent/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1`;
+  const data = await request("GET", url, null, {
+    Referer: `${CONFIG.baseUrl}/agent/MySMSNumbers`,
+    "X-Requested-With": "XMLHttpRequest"
+  });
+  return fixNumbers(safeJSON(data));
+}
+
+/* ================= FETCH SMS ================= */
+async function getSMS() {
+  const today = new Date();
+  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
+  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
+
+  const url = `${CONFIG.baseUrl}/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&iDisplayStart=0&iDisplayLength=5000`;
+  const data = await request("GET", url, null, {
+    Referer: `${CONFIG.baseUrl}/agent/SMSCDRReports`,
+    "X-Requested-With": "XMLHttpRequest"
+  });
+  return fixSMS(safeJSON(data));
+}
 
 /* ================= API ROUTE ================= */
-router.get("/", async (req, res) => {
-  const type = req.query.type;
+app.get("/", async (req, res) => {
+  const { type } = req.query;
+  if (!type) return res.json({ error: "Use ?type=numbers or ?type=sms" });
 
   try {
-    if (!cookie) await login();
+    await login();
 
-    if (type === "numbers") return res.json(await getNumbers());
-    if (type === "sms") return res.json(await getSMS());
+    let result;
+    if (type === "numbers") result = await getNumbers();
+    else if (type === "sms") result = await getSMS();
+    else return res.json({ error: "Invalid type" });
 
-    res.json({ error: "Use ?type=numbers OR ?type=sms" });
-  } catch (e) {
-    cookie = "";
-    res.json({ error: "Session expired — retry next request" });
+    res.json(result);
+  } catch (err) {
+    res.json({ error: err.message });
   }
 });
 
-module.exports = router;
+module.exports = app;
