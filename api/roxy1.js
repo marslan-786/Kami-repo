@@ -82,7 +82,7 @@ async function getSMS() {
   if (!cookie) await login();
 
   const res = await client.get(
-    "/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000",
+    "/agent/res/data_smscdr.php?fdate1=2026-02-21%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000",
     {
       headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" }
     }
