@@ -13,8 +13,7 @@ let cookie = "";
 const client = axios.create({
   baseURL: BASE,
   headers: {
-    "User-Agent":
-      "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/144 Mobile",
   },
   validateStatus: () => true,
 });
@@ -48,7 +47,7 @@ async function login() {
 
 /* ================= CLEAN HTML ================= */
 function clean(text = "") {
-  return text.replace(/<[^>]+>/g, "").trim();
+  return text.replace(/<[^>]+>/g, "").replace(/\n|\r/g, "").trim();
 }
 
 /* ================= FIX NUMBERS ================= */
@@ -56,25 +55,42 @@ function fixNumbers(data) {
   if (!data.aaData) return data;
 
   data.aaData = data.aaData.map(row => {
-    const number = row[3] || "";
-    let range = row[1] || "";
-
-    // Auto-detect country from number prefix
-    let country = "";
-    if (number.startsWith("20")) country = "Egypt";
-    else if (number.startsWith("221")) country = "Senegal";
-    else if (number.startsWith("233")) country = "Ghana";
-    else if (number.startsWith("60")) country = "Malaysia";
-    else country = "";
+    const number = row[2] || row[3] || "";
+    const range = row[0] || row[1] || "";
+    const price = clean(row[4]) || "$ 0.01";
+    const sd = clean(row[5] || row[7]) || "SD : 0 | SW : 0";
 
     return [
-      `${country} ${range}`.trim(), // Country + Range
-      "", // blank column
-      number,
-      "Weekly",
-      clean(row[4] || "Weekly$ 0.01"),
-      clean(row[7] || "SD : 0 | SW : 0"),
+      range,     // Column 1: Range / Provider
+      "",        // Column 2: blank
+      number,    // Column 3: Number
+      "Weekly",  // Column 4
+      price,     // Column 5: Price
+      sd         // Column 6: SD/SW
     ];
+  });
+
+  return data;
+}
+
+/* ================= FIX SMS ================= */
+function fixSMS(data) {
+  if (!data.aaData) return data;
+
+  data.aaData = data.aaData.map(row => {
+    if ((!row[4] || row[4].trim() === "") && row[5]) {
+      row[4] = row[5];
+    }
+
+    // Remove unwanted text
+    row[4] = (row[4] || "").replace(/legendhacker/gi, "").trim();
+
+    // Fill missing columns
+    row[5] = row[5] || "";
+    row[6] = row[6] || "$";
+    row[7] = row[7] || 0;
+
+    return row.slice(0, 8);
   });
 
   return data;
@@ -86,9 +102,7 @@ async function getNumbers() {
 
   const res = await client.get(
     "/agent/res/data_smsnumbers.php?frange=&fclient=&sEcho=2&iDisplayStart=0&iDisplayLength=-1",
-    {
-      headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" },
-    }
+    { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   return fixNumbers(res.data);
@@ -98,40 +112,20 @@ async function getNumbers() {
 async function getSMS() {
   if (!cookie) await login();
 
-  const today = new Date();
-  const fdate1 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 00:00:00`;
-  const fdate2 = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")} 23:59:59`;
-
   const res = await client.get(
-    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(fdate1)}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=5000`,
+    "/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000",
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
-  const data = res.data;
-
-  data.aaData = data.aaData.map(r => {
-    if ((!r[4] || r[4].trim() === "") && r[5]) {
-      r[4] = r[5]; // Move OTP/message to 4th index
-    }
-
-    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim(); // remove unwanted text
-    r[5] = r[5] || "";
-    r[6] = r[6] || "$";
-    r[7] = r[7] || 0;
-
-    return r.slice(0,8);
-  });
-
-  return data;
+  return fixSMS(res.data);
 }
 
-/* ================= AUTO REFRESH ================= */
-setInterval(() => login(), 10 * 60 * 1000); // every 10 min
+/* ================= AUTO REFRESH LOGIN ================= */
+setInterval(login, 10 * 60 * 1000);
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
   const type = req.query.type;
-  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
     if (!cookie) await login();
@@ -139,7 +133,7 @@ router.get("/", async (req, res) => {
     if (type === "numbers") return res.json(await getNumbers());
     if (type === "sms") return res.json(await getSMS());
 
-    res.json({ error: "Invalid type" });
+    res.json({ error: "Use ?type=numbers OR ?type=sms" });
   } catch (e) {
     cookie = "";
     res.json({ error: "Session expired — retrying next request" });
