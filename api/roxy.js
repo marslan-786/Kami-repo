@@ -61,14 +61,14 @@ async function getNumbers() {
 
   const data = res.data;
 
-  // Roxy-style numbers
+  // Clean numbers output
   data.aaData = data.aaData.map(r => [
-    r[0] && r[0].trim() ? r[0] : "Unknown Provider",
-    "",
-    r[2] || "",
-    "Weekly",
-    r[4] && r[4].trim() ? r[4] : "Weekly$ 0.01",
-    r[5] && r[5].trim() ? r[5] : "SD : 0 | SW : 0"
+    clean(r[0]) || "Unknown Provider", // Name / Provider
+    "",                                // Blank column
+    r[2] || "",                        // Number
+    "Weekly",                           // Type
+    clean(r[4]) || "Weekly$ 0.01",     // Price / Info
+    clean(r[5]) || "SD : 0 | SW : 0"   // Status / Stats
   ]);
 
   return data;
@@ -89,22 +89,22 @@ async function getSMS() {
 
   const data = res.data;
 
-  // Fix SMS / OTP
+  // Clean SMS / OTP output
   data.aaData = data.aaData.map(r => {
     // Move OTP / message to column 4
     if ((!r[4] || r[4].trim() === "") && r[5]) {
       r[4] = r[5];
     }
 
-    // Remove "legendhacker" or unwanted text
+    // Remove unwanted text (legendhacker)
     r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
 
-    // Fill missing default columns
+    // Ensure columns exist
     r[5] = r[5] || "";
     r[6] = r[6] || "$";
     r[7] = r[7] || 0;
 
-    return r.slice(0, 8); // Keep only first 8 columns
+    return r.slice(0, 8); // Keep first 8 columns only
   });
 
   return data;
