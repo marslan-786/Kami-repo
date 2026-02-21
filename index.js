@@ -9,6 +9,7 @@ const msi = require("./api/msi");
 const msi1 = require("./api/msi1");
 const np = require("./api/np");
 const np1 = require("./api/np1");
+const np2 = require("./api/np2");
 
 // --- ROUTES ---
 app.use("/api/roxy", roxy);
@@ -17,6 +18,7 @@ app.use("/api/msi", msi);
 app.use("/api/msi1", msi1);
 app.use("/api/np", np);
 app.use("/api/np1", np1);
+app.use("/api/np2", np2);
 
 // --- HEALTH CHECK ---
 app.get("/", (req,res)=> res.send("API RUNNING ✅"));
