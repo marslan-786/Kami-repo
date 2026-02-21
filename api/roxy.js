@@ -1,12 +1,10 @@
 // api/roxy.js
 const express = require("express");
 const axios = require("axios");
-const { parsePhoneNumberFromString } = require("libphonenumber-js");
-
 const router = express.Router();
 
 /* ================= CONFIG ================= */
-const BASE = "http://167.114.209.78/roxy"; // Roxy API
+const BASE = "http://167.114.209.78/roxy";
 const USER = "Kamibroken";
 const PASS = "Kamran5.";
 
@@ -28,7 +26,7 @@ async function login() {
 
   const page = await client.get("/Login");
   const set = page.headers["set-cookie"];
-  if (set) cookie = set.map((c) => c.split(";")[0]).join("; ");
+  if (set) cookie = set.map(c => c.split(";")[0]).join("; ");
 
   const match = page.data.match(/What is (\d+) \+ (\d+)/i);
   const capt = match ? Number(match[1]) + Number(match[2]) : 6;
@@ -45,24 +43,13 @@ async function login() {
   );
 
   if (res.headers["set-cookie"]) {
-    cookie +=
-      "; " + res.headers["set-cookie"].map((c) => c.split(";")[0]).join("; ");
+    cookie += "; " + res.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
   }
 }
 
 /* ================= CLEAN HTML ================= */
 function clean(text = "") {
   return text.replace(/<[^>]+>/g, "").trim();
-}
-
-/* ================= AUTO COUNTRY DETECT ================= */
-function getCountry(number) {
-  try {
-    const pn = parsePhoneNumberFromString(number);
-    return pn ? pn.country : "Unknown";
-  } catch {
-    return "Unknown";
-  }
 }
 
 /* ================= FETCH NUMBERS ================= */
@@ -76,58 +63,35 @@ async function getNumbers() {
 
   const data = res.data;
 
-  if (!data.aaData) return data;
-
-  // Clean numbers + country auto detect
-  data.aaData = data.aaData.map((r) => {
-    const number = r[2] || "";
-    const country = getCountry(number);
-
-    return [
-      country, // Column 1 = Country Name
-      "", // blank
-      number, // Column 3 = Number
-      "Weekly",
-      r[4] && r[4].trim() ? clean(r[4]) : "Weekly$ 0.01",
-      r[5] && r[5].trim() ? clean(r[5]) : "SD : 0 | SW : 0",
-    ];
-  });
+  data.aaData = data.aaData.map(r => [
+    r[1] || "Unknown Provider",
+    "",
+    r[3] || "",
+    "Weekly",
+    clean(r[4] || ""),
+    clean(r[7] || ""),
+  ]);
 
   return data;
 }
 
-/* ================= FETCH SMS / OTP ================= */
+/* ================= FETCH SMS ================= */
 async function getSMS() {
   if (!cookie) await login();
 
-  const today = new Date();
-  const fdate1 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
-    2,
-    "0"
-  )}-${String(today.getDate()).padStart(2, "0")} 00:00:00`;
-  const fdate2 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
-    2,
-    "0"
-  )}-${String(today.getDate()).padStart(2, "0")} 23:59:59`;
-
   const res = await client.get(
-    `/agent/res/data_smscdr.php?fdate1=${encodeURIComponent(
-      fdate1
-    )}&fdate2=${encodeURIComponent(fdate2)}&iDisplayLength=5000`,
+    "/agent/res/data_smscdr.php?fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59&iDisplayLength=2000",
     { headers: { Cookie: cookie, "X-Requested-With": "XMLHttpRequest" } }
   );
 
   const data = res.data;
 
-  if (!data.aaData) return data;
-
-  // Clean SMS / OTP messages
-  data.aaData = data.aaData.map((r) => {
+  data.aaData = data.aaData.map(r => {
     if ((!r[4] || r[4].trim() === "") && r[5]) {
-      r[4] = r[5]; // move message to column 4
+      r[4] = r[5]; // move SMS message to column 4
     }
 
-    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim();
+    r[4] = (r[4] || "").replace(/legendhacker/gi, "").trim(); // clean unwanted text
     r[5] = r[5] || "";
     r[6] = r[6] || "$";
     r[7] = r[7] || 0;
@@ -139,25 +103,22 @@ async function getSMS() {
 }
 
 /* ================= AUTO REFRESH LOGIN ================= */
-setInterval(() => login(), 10 * 60 * 1000); // every 10 minutes
+setInterval(() => login(), 10 * 60 * 1000);
 
 /* ================= API ROUTE ================= */
 router.get("/", async (req, res) => {
   const type = req.query.type;
-  if (!type) return res.json({ error: "Use ?type=numbers OR ?type=sms" });
 
   try {
     if (!cookie) await login();
 
-    let result;
-    if (type === "numbers") result = await getNumbers();
-    else if (type === "sms") result = await getSMS();
-    else return res.json({ error: "Invalid type" });
+    if (type === "numbers") return res.json(await getNumbers());
+    if (type === "sms") return res.json(await getSMS());
 
-    res.json(result);
+    res.json({ error: "Use ?type=numbers OR ?type=sms" });
   } catch (e) {
     cookie = "";
-    res.json({ error: "Session expired — retrying next request", details: e.message });
+    res.json({ error: "Session expired — retrying next request" });
   }
 });
 
