@@ -9,7 +9,7 @@ const router = express.Router();
 const CONFIG = {
   baseUrl: "http://145.239.130.45/ints",
   username: "teamlegend0097",
-  password: "teamlegend0097",
+  password: "kamixlegend",
   userAgent:
     "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 };
@@ -151,7 +151,7 @@ async function getNumbers() {
 async function getSMS() {
   const url =
     `${CONFIG.baseUrl}/agent/res/data_smscdr.php?` +
-    `fdate1=2020-01-01%2000:00:00&fdate2=2099-12-31%2023:59:59` +
+    `fdate1=2026-02-23%2000:00:00&fdate2=2099-12-31%2023:59:59` +
     `&iDisplayLength=2000&iSortCol_0=0&sSortDir_0=desc`;
 
   const data = await request("GET", url, null, {
