@@ -18,7 +18,7 @@ app.use("/api/roxy1", roxy1);
 app.use("/api/msi", msi);
 app.use("/api/msi1", msi1);
 app.use("/api/np", np);
-app.use("/api/np1", np1);
+app.use("/api/np2", np2);
 app.use("/api/goat", goat);
 app.use("/api/goat1", goat1); // <-- NEW
 
