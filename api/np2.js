@@ -5,7 +5,7 @@ const router = express.Router();
 // --- CONFIGURATION (CLIENT) ---
 const CREDENTIALS = {
     username: "Talha5264",
-    password: "Talha5264"
+    password: "Talha52640"
 };
 
 const BASE_URL = "http://51.89.99.105/NumberPanel";
